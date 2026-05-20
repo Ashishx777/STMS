@@ -745,6 +745,13 @@ Process elements in this exact sequence — each locked element's region is visu
 
 #### Per-element loop:
 
+**Two distinct viewing roles in this loop — keep them separate:**
+
+- **Agent inspects rendered PNG** (each `npx hyperframes render --frame 0` output) by READING the file with Read tool to judge ghosting itself. The user does NOT see these intermediate renders. The agent is the judge. Per-element iteration is silent on the user side — they only see terse status updates like "Element 3 ghosting, nudging -8px Y."
+- **User views composition** at the FINAL APPROVAL GATE (step 7 below) via `npm run dev` opening HyperFrames Studio in their browser. NEVER show per-element renders to the user. NEVER use the IDE preview panel for this.
+
+If the user can see the composition in a sidebar/panel inside the IDE (Claude Code Launch panel, Cursor preview, VS Code Live Server, etc.), the agent is doing it wrong — that preview lacks the HyperFrames Studio timeline.
+
 For each element in the order above:
 
 1. **Estimate the initial position visually** from the static reference:
@@ -817,7 +824,9 @@ Then proceed to step 2 of the per-element loop above (insert at `opacity: 0.5`, 
      - Do NOT embed or attempt to display the image inline in the Claude chat
      - Do NOT use any CLI image viewer (`viu`, `chafa`, `kitty +kitten icat`, terminal-image, etc.)
      - Do NOT describe the image to the user in lieu of showing it
-     - The ONLY user-facing preview mechanism in STMS is `npm run dev` (HyperFrames Studio in the browser)
+     - **Do NOT use Claude Code's built-in "Launch preview panel" or any IDE-embedded HTML preview** — these render the HTML statically without HyperFrames Studio's timeline, scrubber, or animation playback. They are NOT acceptable previews for STMS work even though they look superficially similar to a browser tab.
+     - Do NOT use VS Code Live Server, Cursor's preview, Antigravity's preview panel, or any similar built-in HTML preview tool.
+     - The ONLY user-facing preview mechanism in STMS is `npm run dev` (HyperFrames Studio in the user's default browser — recognizable by its timeline UI at the bottom of the page). If you see the composition without a timeline, you're previewing it wrong.
    - Once the dev server is up, tell the user: **"HyperFrames Studio is open in your browser showing the overlay — reference at full opacity, every element at 50%. Does everything look aligned?"**
    - If `npm run dev` printed a URL but the browser didn't auto-open, include the URL in the message so the user can click it.
    - User may request fine adjustments → apply, save → Studio hot-reloads → re-confirm in the same browser session

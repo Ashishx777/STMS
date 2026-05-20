@@ -146,8 +146,16 @@ Skip this if Mode A (elements provided).
 
 5. **Final approval gate:**
    - Render `final-overlay.png` (all elements at 0.5 over reference at 1.0)
-   - Run `npm run dev` in background → HyperFrames Studio opens in browser showing the overlay
-   - **NEVER preview via OS image viewer, CLI image tool, or inline embed in chat.** Only `npm run dev` browser preview.
+   - Run `npm run dev` in background → HyperFrames Studio opens in **the user's default browser** showing the overlay with a TIMELINE at the bottom
+   - **NEVER preview via any of these — they all look like browsers but are NOT HyperFrames Studio:**
+     - Claude Code "Launch preview panel" (IDE sidebar)
+     - Cursor / VS Code / Antigravity built-in HTML preview
+     - VS Code Live Server extension
+     - OS image viewer / CLI image tool / inline chat embed
+   - **How to tell it's the right preview:** HyperFrames Studio has a timeline UI at the bottom of the page with playback controls. If there's no timeline, it's the wrong tool.
+   - **Two viewing roles, keep separate:**
+     - Agent reads per-element render PNGs itself via Read tool (silent — user doesn't see these)
+     - User views ONLY the final composition via `npm run dev` browser, with timeline visible
    - Ask user (via popup): "Aligned?" → on approval, remove reference layer + opacity:0.5, save `verified-positions.json`
 
 ⚠ **MUST get explicit user approval before Phase 4**
