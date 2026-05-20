@@ -1,0 +1,14 @@
+{
+  "allowedTools": [
+    "Bash(*)",
+    "Read(*)",
+    "Write(*)"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)"
+    ]
+  }
+}

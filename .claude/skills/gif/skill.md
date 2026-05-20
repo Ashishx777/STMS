@@ -1,0 +1,227 @@
+---
+name: gif
+description: "STMS — Static to Motion System. Run /GIF to convert static designs + Figma-exported elements into animated compositions."
+---
+
+# /GIF — STMS — Static to Motion System
+
+Converts static design images with Figma-exported element assets into animated compositions using HyperFrames.
+
+## Trigger
+
+```
+/GIF
+```
+
+---
+
+## STEP 0 — Load Workflow
+
+Read the full workflow instructions:
+
+```
+.agents/static-to-gif/workflow.md
+```
+
+Follow every phase strictly. Do NOT skip any phase.
+
+**Execution permissions are pre-granted.** Never ask the user for permission to run npm, python, ffmpeg, node, file operations, or any bash command. Just execute.
+
+---
+
+## STEP 1 — Smart File Discovery (Phase 0)
+
+1. **Detect platform:** `process.platform` → `"win32"` (Windows), `"darwin"` (Mac), `"linux"` (Linux). Store as `Platform`.
+2. **Check `stms-preferences.json`:** If missing, run first-time setup (ask operational preferences once, save).
+3. **Always Ask for Folder Path** — use platform-appropriate picker:
+
+   **Windows:**
+   ```powershell
+   Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Select Folder (navigate inside the folder and click Open)'; $d.FileName = 'Select this folder'; $d.CheckFileExists = $false; $d.ValidateNames = $false; if ($d.ShowDialog() -eq 'OK') { Split-Path $d.FileName } else { Write-Output 'CANCELLED' }
+   ```
+   **Mac:**
+   ```bash
+   osascript -e 'POSIX path of (choose folder with prompt "Select the folder containing your static design and elements")'
+   ```
+   **Linux/Fallback:** Ask for path in chat.
+
+   Save path as `SourceFolder`.
+4. Scan for static reference image + `elements/` folder
+5. Visually inspect static to auto-name the project
+6. Copy files to `assets/static-gif/<project>/` (never move)
+7. Detect **`InputAspectRatio`**: 1:1 / 9:16 / other
+8. Report to user: project name, source, dimensions, element count, aspect ratio
+
+---
+
+## STEP 2 — Ingest, Inventory & Animation Planning (Phase 1)
+
+**This step combines inventory, animation decisions, and font preparation upfront.**
+
+### Mode B: AI Cutout (only if user chose "cut out elements from static" in Step 1)
+
+Skip this if Mode A (elements provided).
+
+1. Visually analyze static → identify every element (background, products, text, logos, shapes)
+2. Present element list to user: **"I identified these elements. Is this complete?"** → wait for confirmation
+3. Cut out each element one by one (foreground to background):
+   - u2net (`npx hyperframes remove-background`) for clear edges
+   - If poor result + Higgsfield connected → ask user: **"Use AI for better extraction?"**
+   - Save each cutout to `elements/` at native dimensions
+   - Generative fill the hole: programmatic for simple backgrounds, ask user about Higgsfield for complex
+   - Verify each cutout: 50% opacity over original static → zero ghosting = good
+4. Build clean background layer from filled static
+5. Report results, proceed to Part A
+
+### Part A: Inventory
+1. List every file in `elements/` with dimensions
+2. Read the static reference image — study the full layout
+3. **Classify each element as TEXT or GRAPHIC** by visual inspection
+4. For TEXT elements: read and record the text content
+5. Present inventory table to user (element name, type, dimensions, text content)
+
+### Part B: Animation Decisions
+6. Check `animation-presets.md` for matching presets
+7. **Ask user what animations they want** — suggest presets + concrete options per element
+8. **Do NOT proceed until the user answers**
+9. **Classify each element's render type:**
+   - **PNG** = no animation or simple animation (fade, slide, scale, rotate)
+   - **HTML TEXT** = text-based animation (countdown, typewriter, word-by-word, number counter)
+
+### Part C: Font Sourcing (only for HTML TEXT elements)
+10. **Visually identify font** for each HTML TEXT element — suggest match: "This looks like [Font Name] [Weight]. Correct?"
+11. **Source the font:** Google Fonts CDN first → if not available, ask user for .ttf/.woff2 file
+    - System fonts do NOT work in headless Chrome — must embed via `@font-face` or Google Fonts
+12. **Match text properties from PNG:** font-size (from height), weight (from stroke thickness), color (pixel sample), letter-spacing (width comparison), line-height, text-transform
+13. Report animation plan to user: element → render type → animation → font
+
+---
+
+## STEP 3 — Reconstruct Non-Animated Composition (Phase 2)
+
+1. Load the `/hyperframes` skill before creating the composition
+2. Create composition at `compositions/static-gif-<project>.html`
+3. Apply Aspect Ratio Conversion Rules if needed (Rule A: 1:1→9:16, Rule B: 9:16→1:1, Rule C: native)
+4. **Place elements based on render type from Step 2:**
+   - **PNG elements** → `<img>` tags with absolute positioning
+   - **HTML TEXT elements** → `<div>` with matched font, size, weight, color, spacing
+   - Add Google Fonts `<link>` or `@font-face` in `<head>` for embedded fonts
+5. All elements get `class="clip"` with `data-start`, `data-duration`, `data-track-index`
+6. **NO animation yet** — pure pixel-perfect reconstruction
+
+---
+
+## STEP 4 — Verify Alignment (Phase 3)
+
+1. Add static reference as bottom layer at full opacity
+2. **Use SMART MATCHING ORDER** — largest/most-opaque first:
+   - Full-bleed backgrounds → large opaque shapes → product images → icons/badges → text
+   - Each confirmed element excludes its bounding box from subsequent searches
+3. **Use the right matching technique:**
+   - **Opaque PNG elements:** Standard OpenCV template matching (`TM_CCOEFF_NORMED`)
+   - **Transparent PNG elements:** Edge-based matching (Canny edge detection on both element and reference)
+   - **HTML TEXT elements:** Render at current position, compare against corresponding region in static reference — must match within 2px width/height, 1px position
+   - **Fallback:** Restricted-ROI pixel-difference search if confidence < 0.6
+4. Render one frame after each element — check for ghosting
+5. **If misaligned → fix and re-verify. Do NOT proceed until perfect.**
+6. Show full overlay to user for approval
+7. **Save verified positions** to `verified-positions.json` (element ID → {left, top, width, height, render_type})
+8. Report alignment status to the user
+
+⚠ **MUST get explicit approval before Phase 4**
+
+---
+
+## STEP 5 — Animate (Phase 4)
+
+1. Load the `/gsap` skill
+2. Build **custom GSAP animations** per user choices from Step 2:
+   ```js
+   window.__timelines = window.__timelines || {};
+   const tl = gsap.timeline({ paused: true });
+   // PNG elements: fade, slide, scale tweens
+   // HTML TEXT elements: textContent manipulation (counters, typewriter)
+   window.__timelines["static-gif-<project>"] = tl;
+   ```
+3. Set composition duration to total animation + hold time
+4. **POST-ANIMATION POSITION VERIFICATION (mandatory):**
+   - Render frame 0, compare against `verified-positions.json`
+   - If any element shifted by more than 1px → auto-correct and re-verify
+   - Catches displacement from HTML restructuring
+
+**After user approves new animation → save as preset in `animation-presets.md`.**
+
+---
+
+## STEP 6 — Preview & Refine (Phase 5)
+
+1. Run `npm run dev` and `npm run check`
+2. Show user the animated result in Studio
+3. Iterate on timing/easing if requested
+
+⚠ **MUST get explicit "render it" command before Step 7**
+
+---
+
+## STEP 6B — Audio & SFX (Phase 5B — OPTIONAL, after animation approved)
+
+**Only after user approves the animation preview in Step 6.** Do NOT plan SFX earlier.
+
+1. **Ask user:** **"Do you want to add sound effects or audio?"** (Yes / No)
+   - If **No** → skip to Step 7 (render silent)
+   - If **Yes** → continue
+2. **Check ElevenLabs MCP:**
+   - Connected → proceed with generation
+   - Not connected → inform user, offer to accept user-provided audio files instead
+3. **Suggest SFX** per animation type (whoosh for slides, pop for scale, typing for typewriter, etc.)
+   - User picks which SFX they want — do NOT generate unapproved sounds
+4. **Generate via ElevenLabs** → save to `assets/static-gif/<project>/audio/`
+5. **Sync to timeline** — add `<audio>` elements with `data-start` matching animation triggers
+6. **Preview with audio** → user approves or adjusts
+
+**MP4 gets embedded audio. GIF is always silent (format limitation).**
+
+---
+
+## STEP 7 — Render (Phase 6)
+
+**ONLY render when user explicitly says to.**
+
+**Output Location:** `<SourceFolder>/output/`
+**Versioning:** Always ask overwrite or new version on re-renders.
+
+```bash
+mkdir -p "<SourceFolder>/output"
+npx hyperframes render --output "<SourceFolder>/output/<project>.mp4"
+```
+
+GIF conversion if needed:
+```bash
+ffmpeg -i "<SourceFolder>/output/<project>.mp4" -vf "fps=15,scale=<width>:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" "<SourceFolder>/output/<project>.gif"
+```
+
+**Post-Render Flow** (uses `stms-preferences.json` — only asks if set to `"ask_each_time"`):
+- Aspect ratio: auto-convert / skip / ask based on saved preference + `InputAspectRatio`
+- Cleanup: auto-clean / skip / ask based on saved preference
+- Versioning: auto-overwrite / auto-version / ask based on saved preference
+
+---
+
+## Rules
+
+- **ALWAYS detect platform** — use platform-appropriate commands (never Windows on Mac)
+- **ALWAYS check `stms-preferences.json`** — if missing, run first-time setup. Never re-ask saved preferences.
+- **ALWAYS ask for folder path** on every run
+- **ALWAYS ask animation decisions in Phase 1** — before reconstruction
+- **ALWAYS save rendered outputs** to `<SourceFolder>/output/`
+- **ALWAYS follow Aspect Ratio Conversion Rules** (Rule A / Rule B / Rule C)
+- **NEVER skip alignment verification** (Step 4)
+- **NEVER animate before user approves** placement (Step 4)
+- **NEVER guess fonts** — visually identify and confirm with user
+- **NEVER change element sizes** — Figma exports at native dimensions
+- **NEVER run Windows commands on Mac** or vice versa
+- **System fonts don't work** in headless Chrome — always embed fonts
+- **All animations are custom** — build with GSAP
+- **Only render on explicit user command**
+- **Use `mkdir -p`** for directory creation (cross-platform)
+- **Clean previous frames** at start of each new run
