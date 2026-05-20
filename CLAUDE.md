@@ -1,5 +1,31 @@
 # STMS — Static to Motion System
 
+## OUTPUT STYLE (READ FIRST)
+
+**Internal artifacts (code, JSON, commands, file paths):** dense and complete.
+
+**Status updates to user:** terse. One sentence. No preambles, no recaps, no narrating commands before running — just run them. Don't echo file contents.
+
+Examples (status):
+- BAD: "I'll now check if Node.js is installed by running `node --version`..."
+- GOOD: *(run it)* "Node 25.7 ✓"
+- BAD: "Great! Setup is complete. All prerequisites are installed..."
+- GOOD: "Setup done. /GIF to start."
+
+**Questions to user:** properly formatted. List all options clearly with numbers/letters, include relevant context, make the choice obvious. Clarity over brevity HERE.
+
+Example (question):
+- GOOD:
+  > **Permission mode — pick one:**
+  >
+  > **1. Allow all** (recommended) — no future approval prompts during STMS runs.
+  > **2. Ask each time** — Claude Code prompts before commands not pre-allowed.
+  >
+  > Which?
+- BAD: "allow all or ask?"
+
+---
+
 ## FIRST RUN AUTO-SETUP
 
 **If this is a fresh clone (no `node_modules/`, no `.hyperframes/`, no `stms-preferences.json`), run the full setup automatically. Do NOT ask — just do it.**
@@ -23,42 +49,107 @@ node -e "console.log(process.platform)"
 
 Store as `Platform` variable for all subsequent commands.
 
-### Step 2: Check Prerequisites
+### Step 2: Check Prerequisites — AUTO-INSTALL EVERYTHING
 
-Check each tool. If missing, install it automatically (Mac/Linux) or tell the user exactly what to do (Windows).
+The agent installs every missing tool automatically using the platform's package manager. **The user should never have to manually download installers.** A single UAC / sudo prompt may appear during install — that's the only manual interaction permitted.
 
-**Node.js:**
-```bash
-node --version
+Announce what's about to happen before installing:
+> "Checking prerequisites. I'll auto-install anything missing (Node.js, FFmpeg, Python, OpenCV) using your system package manager. You may see one permission prompt — click yes."
+
+Then run the auto-install for the detected platform.
+
+---
+
+#### Windows (winget)
+
+`winget` ships with Windows 10 1809+ and Windows 11 by default. Use it for everything.
+
+```powershell
+# Helper: refresh PATH so newly installed binaries are findable in this session
+$RefreshPath = {
+  $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+              [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+
+# Node.js LTS (REQUIRED)
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  winget install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
+  & $RefreshPath
+}
+
+# FFmpeg (REQUIRED)
+if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+  winget install --id Gyan.FFmpeg --silent --accept-source-agreements --accept-package-agreements
+  & $RefreshPath
+}
+
+# Python 3 (OPTIONAL — for background accelerator)
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+  winget install --id Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements
+  & $RefreshPath
+}
+
+# OpenCV + NumPy (OPTIONAL — for background accelerator)
+if (Get-Command python -ErrorAction SilentlyContinue) {
+  python -c "import cv2, numpy" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    python -m pip install --user opencv-python numpy
+  }
+}
 ```
-- If found → continue
-- If missing → STOP. Tell user: "Node.js is required. Download from https://nodejs.org (LTS version). Install it, then run me again."
-- Node.js cannot be auto-installed — it requires a system installer.
 
-**FFmpeg:**
-```bash
-ffmpeg -version
-```
-- If found → continue
-- If missing on **Mac**: `brew install ffmpeg` (auto-install)
-- If missing on **Linux**: `sudo apt install ffmpeg -y` (auto-install, this is the one exception for sudo)
-- If missing on **Windows**: Tell user: "FFmpeg is required for GIF conversion. Download from https://www.gyan.dev/ffmpeg/builds/ → extract to C:\ffmpeg → add C:\ffmpeg\bin to your system PATH. Then run me again."
+**If `winget` itself is missing** (very rare on supported Windows): tell the user to install "App Installer" from the Microsoft Store (`ms-windows-store://pdp/?productid=9NBLGGH4NNS1`), then retry. This is the ONLY case where the user must do something manual on Windows.
 
-**Python 3 (needed for OpenCV overlay verification):**
-```bash
-python3 --version || python --version
-```
-- If found → continue
-- If missing on **Mac**: `brew install python`
-- If missing on **Linux**: `sudo apt install python3 python3-pip -y`
-- If missing on **Windows**: Tell user: "Python 3 is required. Download from https://python.org → install with 'Add to PATH' checked."
+#### Mac (brew)
 
-**OpenCV + NumPy (Python packages for Phase 3 matching):**
 ```bash
-python3 -c "import cv2; import numpy; print('OK')" || python -c "import cv2; import numpy; print('OK')"
+# Bootstrap Homebrew if missing
+if ! command -v brew &> /dev/null; then
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # Add brew to PATH for this session
+  eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
+fi
+
+# Required + optional in one pass
+command -v node     &> /dev/null || brew install node
+command -v ffmpeg   &> /dev/null || brew install ffmpeg
+command -v python3  &> /dev/null || brew install python
+
+# OpenCV + NumPy (optional)
+python3 -c "import cv2, numpy" 2>/dev/null || python3 -m pip install --user opencv-python numpy
 ```
-- If found → continue
-- If missing: `pip3 install opencv-python numpy --break-system-packages` (or `pip install` on Windows)
+
+#### Linux (apt — Debian/Ubuntu; adapt for other distros)
+
+```bash
+# Update package index once
+sudo apt update -qq
+
+command -v node    &> /dev/null || sudo apt install -y nodejs npm
+command -v ffmpeg  &> /dev/null || sudo apt install -y ffmpeg
+command -v python3 &> /dev/null || sudo apt install -y python3 python3-pip
+
+# OpenCV + NumPy (optional)
+python3 -c "import cv2, numpy" 2>/dev/null || pip3 install --user opencv-python numpy
+```
+
+For non-Debian distros: substitute `dnf`/`pacman`/`zypper` and tell the user which command was run.
+
+---
+
+#### After auto-install, verify everything
+
+Re-run the version checks:
+```bash
+node --version          # required
+ffmpeg -version         # required
+python --version || python3 --version   # optional
+python -c "import cv2, numpy"           # optional
+```
+
+**REQUIRED tools that still fail** (Node.js or FFmpeg) → STOP, show the user the exact error from the install command, and ask whether they want to retry or install manually.
+
+**OPTIONAL tools that fail** (Python, OpenCV) → continue setup. Phase 3 falls back to pure visual overlay placement. Note in the status report that the optional background accelerator is unavailable.
 
 ### Step 3: Install HyperFrames Skills
 
@@ -78,16 +169,16 @@ After setup completes, report:
 ✅ STMS Setup Complete
 ─────────────────────
 Platform:     [Windows/Mac/Linux]
-Node.js:      [version] ✓
-FFmpeg:       [version] ✓
-Python:       [version] ✓
-OpenCV:       [version] ✓
+Node.js:      [version] ✓ (required)
+FFmpeg:       [version] ✓ (required)
+Python:       [version] ✓ (optional — background accelerator)
+OpenCV:       [version] ✓ (optional — background accelerator)
 HyperFrames:  Skills installed ✓
 
 Type /GIF to start your first project.
 ```
 
-If any prerequisite failed and couldn't be auto-installed, list it clearly:
+If a REQUIRED prerequisite (Node.js or FFmpeg) is missing, block setup and list it:
 
 ```
 ⚠ STMS Setup Incomplete
@@ -98,11 +189,27 @@ If any prerequisite failed and couldn't be auto-installed, list it clearly:
 Install FFmpeg, then type /GIF to start.
 ```
 
+Missing OPTIONAL tools (Python/OpenCV) do not block — just note them:
+
+```
+✅ STMS Setup Complete (with optional accelerator skipped)
+Python/OpenCV not installed — Phase 3 will use pure visual overlay
+placement for every element including the background. No functional loss.
+```
+
 ---
 
-## Execution Permissions — PRE-GRANTED (DO NOT ASK)
+## Execution Permissions — USER-CHOSEN ON FIRST RUN
 
-**All code execution permissions are pre-granted via `.claude/settings.local.json`.** This is a blanket one-time grant. The agent must NEVER ask the user for permission to run bash commands, npm scripts, python, ffmpeg, node, file operations, or any other system command. Just execute. If a command fails, fix it and retry — don't ask if you're allowed to.
+**Permission mode is decided once, on the very first `/GIF` run, via Q0 of the first-run setup.** The choice is saved to `static-to-gif/stms-preferences.json` as `permission_mode` and applied to `.claude/settings.local.json`. Never re-asked.
+
+**Two modes:**
+
+1. **`allow_all`** (recommended, default selection) — `.claude/settings.local.json` includes broad wildcards for Bash, Read, Write, Edit, Glob, Grep, and MCP tools. The agent runs every command without prompting. Just execute. If a command fails, fix it and retry — don't ask if you're allowed to.
+
+2. **`ask_each_time`** — narrow allow list. Claude Code prompts the user before commands not pre-allowed. The agent must NOT try to bypass these prompts. If the user denies a command, do not retry the same command — ask the user how to proceed.
+
+**Default shipped state:** `.claude/settings.local.json` ships with the broad `allow_all` permission set so the very first `/GIF` command (which needs to read files, run platform detection, and ask Q0) does not prompt. If the user picks `ask_each_time` at Q0, the agent narrows the allow list before continuing.
 
 **Security:** The system auto-detects the platform (Windows/Mac/Linux) and uses the correct commands. On Mac, the first run may trigger one-time OS security prompts (folder access, osascript) — the user grants once and it persists. The system NEVER requires admin/root/sudo for normal operation (except the one-time FFmpeg/Python install on Linux). If a command asks for elevated access outside of initial setup, it is a bug — report it, don't grant it.
 

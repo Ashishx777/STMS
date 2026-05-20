@@ -24,7 +24,7 @@ Built on [HyperFrames](https://hyperframes.heygen.com) with GSAP animations, ren
 /GIF <path>           (or just /GIF — agent asks for path)
   │
   ├── Phase 0: Smart File Discovery
-  │   Accept path arg or ask → scan source → auto-name project
+  │   Accept path arg or ask → scan source → project name = slugified source folder basename
   │   Detect input aspect ratio (1:1 / 9:16 / other)
   │   COPY files to assets/static-gif/<name>/ (source untouched)
   │

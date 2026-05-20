@@ -14,24 +14,28 @@ You give it a **static design** (a PNG from Figma) + **exported elements** (indi
 
 ---
 
-## Quick Start (2 steps)
+## Quick Start (1 command)
 
-### Step 1: Clone the repo
+Copy-paste the line for your OS. It clones the repo, enters the folder, and launches Claude Code — all in one go.
 
+**macOS / Linux:**
 ```bash
-git clone https://github.com/Ashishx777/STMS.git
-cd STMS
+git clone https://github.com/Ashishx777/STMS.git && cd STMS && claude
 ```
 
-### Step 2: Open in Claude Code
-
-```bash
-claude
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/Ashishx777/STMS.git; cd STMS; claude
 ```
 
-**That's it.** Claude Code reads the project, detects your platform, checks for missing tools (Node.js, FFmpeg, Python), installs what's needed, sets up HyperFrames skills, and reports when ready.
+**Windows (cmd.exe):**
+```cmd
+git clone https://github.com/Ashishx777/STMS.git && cd STMS && claude
+```
 
-If anything is missing that can't be auto-installed (like Node.js on Windows), it tells you exactly what to download and where.
+⚠ **You MUST be inside the `STMS` folder when Claude Code launches.** If you run `claude` from the parent folder, the `/GIF` command, auto-setup, and permissions won't load. The chained command above handles this automatically.
+
+**What happens next:** Claude Code reads the project, auto-installs missing tools via your system's package manager (winget on Windows, brew on Mac, apt on Linux), asks you 4 one-time setup questions, and reports when ready.
 
 Once setup is complete, type:
 
@@ -41,7 +45,7 @@ Once setup is complete, type:
 
 > **Don't have Claude Code?** Install it first: `npm install -g @anthropic-ai/claude-code`
 >
-> **Don't have Node.js?** Download from https://nodejs.org (LTS version). This is the only manual install required — everything else is handled automatically.
+> **Don't have Node.js?** Download from https://nodejs.org (LTS version). This is the ONE manual install required (Claude Code itself needs Node). Everything else — FFmpeg, Python, OpenCV — is auto-installed by the agent on first run.
 
 ---
 
@@ -123,10 +127,13 @@ Phase 6 — Render to MP4 + GIF
 
 ## For Your Team
 
-**Getting updates:** When the system is updated, just run:
+**Getting updates:** When the system is updated, pull the latest from inside the STMS folder:
 ```bash
-cd STMS
-git pull
+# macOS / Linux / Windows cmd
+cd STMS && git pull
+
+# Windows PowerShell
+cd STMS; git pull
 ```
 
 **First-time setup asks you 3 questions** (preferences for cleanup, aspect ratio conversion, versioning). After that, it never asks again — just runs.

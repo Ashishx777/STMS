@@ -47,7 +47,7 @@ Follow every phase strictly. Do NOT skip any phase.
 
    Save path as `SourceFolder`.
 4. Scan for static reference image + `elements/` folder
-5. Visually inspect static to auto-name the project
+5. Derive project name from source folder basename (slugified, lowercase, dashes) — no visual analysis
 6. Copy files to `assets/static-gif/<project>/` (never move)
 7. Detect **`InputAspectRatio`**: 1:1 / 9:16 / other
 8. Report to user: project name, source, dimensions, element count, aspect ratio

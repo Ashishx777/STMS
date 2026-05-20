@@ -1,8 +1,34 @@
 # STMS — Static to Motion System Workflow
 
+## OUTPUT STYLE (READ FIRST — affects every turn)
+
+**Internal artifacts (code, JSON, commands, file paths):** keep dense and complete. The agent reads these.
+
+**Status updates to user:** terse. One sentence. No preambles, no recaps, no "here's what I'm doing", no summaries of completed tool calls. Don't echo file contents. Don't narrate a command before running — just run it.
+
+Examples (status):
+- BAD: "I'll now read the static reference image and analyze its dimensions..."
+- GOOD: *(run it)* "1:1, 1080×1080."
+- BAD: "Great! I've successfully placed the background. The overlay shows perfect alignment..."
+- GOOD: "Background locked. Next: headline."
+
+**Questions to user:** properly formatted. List all options clearly with numbers/letters, include the relevant context, make the choice obvious. Clarity over brevity HERE — the user needs to make a good decision. No compression of options into one line.
+
+Example (question):
+- GOOD:
+  > **Animation choice — pick one:**
+  >
+  > **Option A — Preset:** "Slide-In Fade Blur" (used in atovio-colour-picker). Products slide in from sides with fade + blur.
+  > **Option B — Custom:** per-element control over speed, easing, stagger, loop, duration.
+  >
+  > Which?
+- BAD: "preset or custom?"
+
+---
+
 ## Overview
 
-Converts static design images (with Figma-exported element assets) into animated compositions (GIF or MP4) using HyperFrames.
+Static design + element PNGs → animated GIF/MP4 via HyperFrames.
 
 ---
 
@@ -45,20 +71,56 @@ compositions/
 
 ## Step-by-Step Workflow
 
-### FIRST RUN SETUP: One-Time Permissions
+### FIRST RUN SETUP: One-Time Preferences
 
-**On the very first `/GIF` run in a project, check for `static-to-gif/stms-preferences.json`.** If it doesn't exist, ask the user these operational questions ONCE, save their answers, and never ask again:
+**On the very first `/GIF` run in a project, check for `static-to-gif/stms-preferences.json`.** If it doesn't exist, ask the user these questions ONCE, save their answers, and never ask again:
+
+**Q0 — Permission mode (asked FIRST, before anything else):**
 
 ```
-"Before we start, I need to set up your preferences (one time only):"
+"Before we start: do you want me to allow all commands automatically, or
+should I ask before each one?"
 
-1. After rendering, do you want me to automatically generate the alternate aspect ratio version?
+1. Allow all (recommended for fast workflow) — I'll write broad permissions
+   to .claude/settings.local.json so you never see approval prompts during
+   STMS runs.
+2. Ask each time — Claude Code will prompt you before running any command
+   not already in your global allow list.
+```
+
+Based on the answer:
+- If **"Allow all"** → write/merge into `.claude/settings.local.json`:
+  ```json
+  {
+    "permissions": {
+      "allow": [
+        "Bash(*)",
+        "Read(*)",
+        "Write(*)",
+        "Edit(*)",
+        "Glob(*)",
+        "Grep(*)",
+        "mcp__*"
+      ]
+    }
+  }
+  ```
+  Preserve any existing entries (merge, don't overwrite). Save `permission_mode: "allow_all"` to preferences.
+- If **"Ask each time"** → leave `.claude/settings.local.json` untouched. Save `permission_mode: "ask_each_time"` to preferences. The user accepts that Claude Code will prompt per command.
+
+**Q1–Q3 — Operational preferences (asked after Q0):**
+
+```
+1. After rendering, do you want me to automatically generate the alternate
+   aspect ratio version?
    → Always yes / Always no / Ask each time
 
-2. After rendering, do you want me to automatically clean up temporary debug files?
+2. After rendering, do you want me to automatically clean up temporary
+   debug files?
    → Always yes / Always no / Ask each time
 
-3. When re-rendering, should I overwrite the previous file or create a new version?
+3. When re-rendering, should I overwrite the previous file or create a new
+   version?
    → Always overwrite / Always new version / Ask each time
 ```
 
@@ -67,6 +129,7 @@ Save to `static-to-gif/stms-preferences.json`:
 {
   "created": "2026-05-20",
   "platform": "windows",
+  "permission_mode": "allow_all",
   "aspect_ratio_conversion": "always_yes",
   "cleanup_after_render": "always_yes",
   "overwrite_behavior": "always_ask"
@@ -106,23 +169,29 @@ All platform-specific commands in this workflow use the `Platform` variable to s
 
 ---
 
-### EXECUTION PERMISSIONS — PRE-GRANTED
+### EXECUTION PERMISSIONS — USER-CHOSEN AT Q0
 
-**All code execution permissions are pre-granted in `.claude/settings.local.json`.** The agent must NEVER ask the user for permission to run any command — just execute.
+**Permission behavior is decided by the user at Q0 of FIRST RUN SETUP.** The choice is stored in `static-to-gif/stms-preferences.json` as `permission_mode`.
 
-Pre-approved commands (execute without asking):
+**Mode `"allow_all"`** (recommended, default selection at Q0):
+`.claude/settings.local.json` contains broad wildcards. The agent runs every command without prompting. NEVER re-ask, NEVER confirm before running — just execute. If a command fails, report the error and fix it.
+
+Pre-approved command families under `allow_all`:
 - `npm run dev` / `npm run check` / `npm run render`
 - `npx hyperframes render` / `npx hyperframes lint` / `npx hyperframes inspect`
-- `python` / `python3` (OpenCV, PIL, composite checks, any helper scripts)
+- `python` / `python3` (OpenCV background accelerator, PIL, any helper scripts)
 - `ffmpeg` (MP4→GIF conversion, palette optimization)
 - `mkdir -p` / `cp` / `rm` (file operations)
 - Platform folder pickers (PowerShell on Windows, osascript on Mac)
 - `node` / `npx` (any Node.js execution)
-- File read/write operations anywhere in the project
+- File read/write/edit operations anywhere in the project
+- Glob / Grep searches
+- MCP tools (Higgsfield, ElevenLabs, etc.)
 
-**The user has granted blanket permission once. Do NOT re-ask. Do NOT confirm before running. Just run the command.**
+**Mode `"ask_each_time"`**:
+The agent runs commands knowing Claude Code may prompt the user. The agent must NOT try to bypass prompts. If the user denies a command, do NOT retry it — ask the user how to proceed (different command, skip step, change preference).
 
-If a command fails, report the error and fix it — don't ask if you're allowed to retry.
+**To change permission mode later:** user says "switch STMS to allow all" or "switch STMS to ask each time". Update `permission_mode` in `stms-preferences.json` AND adjust `.claude/settings.local.json` accordingly.
 
 #### Platform-Specific Security Setup (one-time, handled on first run)
 
@@ -196,7 +265,24 @@ The agent must detect the platform and ensure the required OS-level permissions 
    
    **Do NOT assume Mode B automatically.** Only enter AI cutout mode when the user explicitly chooses option 2.
 
-4. **Auto-name the project** — read the static image visually, derive a descriptive name (e.g., `atovio-colour-picker`, `summer-sale-banner`, `product-launch-hero`)
+4. **Derive the project name from the source folder name** — no visual analysis, no brand detection. Just slugify the source folder's basename (lowercase, replace non-alphanumeric with dashes, collapse repeats, trim edges).
+
+   **Windows (PowerShell):**
+   ```powershell
+   $ProjectName = (Split-Path -Leaf $SourceFolder).ToLower() -replace '[^a-z0-9]+','-' -replace '^-|-$',''
+   ```
+
+   **Mac/Linux (bash):**
+   ```bash
+   ProjectName=$(basename "$SourceFolder" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+   ```
+
+   Examples:
+   - `C:\Users\me\Desktop\Atovio Colour Picker\` → `atovio-colour-picker`
+   - `~/projects/summer_sale/` → `summer-sale`
+   - `D:\work\AdCampaign2026\` → `adcampaign2026`
+
+   **Why:** the source folder name is already descriptive (the user named it for a reason), and there's no benefit to scanning the static for a "brand." Re-running on the same source folder reuses the same `assets/static-gif/<name>/` and `static-to-gif/projects/<name>/` working folders — supports iteration without duplicate folders piling up.
 
 5. **Set up project structure:**
    - **Copy** (NOT move) the static image → `assets/static-gif/<project-name>/static.png`
@@ -301,37 +387,49 @@ This phase combines element inventory, animation decisions, and font preparation
 
 #### Part B: Animation Decisions
 
-6. **Check `.agents/static-to-gif/animation-presets.md` for matching presets.** If a preset fits the current layout, suggest it by name.
+6. **Check `.agents/static-to-gif/animation-presets.md`** — find any presets that could fit this layout. Note them but do not auto-apply.
 
-7. **Ask the user what animations they want.** Present concrete suggestions:
+7. **Present the user with an EXPLICIT preset-vs-custom choice.** Do not push them in either direction. Both options must always be offered:
 
-   > **Matching preset found: "[Preset Name]"** (used in [project])
-   > - [Brief description]
+   > **Animation choice — pick one:**
    >
-   > **Suggested animations for your design:**
-   > 1. **[Element/group]**: [animation type] — e.g. "Products: Slide in from left/right with fade + blur"
-   > 2. **[Element/group]**: [animation type] — e.g. "Price: Count-up from 0 to ₹4,999"
-   > 3. **[Element/group]**: [animation type] — e.g. "Headline: Typewriter reveal"
-   > 4. **[Element/group]**: [animation type] — e.g. "Logo: Subtle fade in"
+   > **Option A — Use a preset** (faster, proven)
+   > Matching presets for this layout:
+   > 1. **"[Preset Name]"** — [brief description, used in [project]]
+   > 2. **"[Preset Name]"** — [brief description, used in [project]]
+   > (If no presets match, say so explicitly and only offer Option B.)
    >
-   > **Options:**
+   > **Option B — Custom animation** (per-element control)
+   > Suggested per-element animations for this design:
+   > - **[Element/group]**: e.g. "Products: Slide in from left/right with fade + blur"
+   > - **[Element/group]**: e.g. "Price: Count-up from 0 to ₹4,999"
+   > - **[Element/group]**: e.g. "Headline: Typewriter reveal"
+   > - **[Element/group]**: e.g. "Logo: Subtle fade in"
+   >
+   > **Which do you want — preset (which number?) or custom?**
+
+8. **If user picks a preset**, apply it as-is. They may still tweak it after preview in Phase 5.
+
+9. **If user picks custom**, ask the follow-up options:
+
+   > **Custom animation options:**
    > - Speed: Fast (0.5s) / Medium (0.8s) / Slow (1.2s)?
    > - Stagger: Tight (0.1s gaps) / Relaxed (0.3s gaps)?
    > - Easing: Smooth (power2.out) / Snappy (back.out) / Bouncy (elastic)?
    > - Loop: Infinite / Once / Play + reverse?
    > - Total duration: 3s / 5s / 8s?
 
-   **Do NOT proceed until the user answers.**
+   **Do NOT proceed until the user answers.** The agent does NOT have a preference between preset and custom — never recommend one over the other unless the user asks for a recommendation.
 
-8. **Classify each element's render type** based on the user's animation choices:
-   - **PNG** = element gets no animation, or simple animation only (fade, slide, scale, rotate). The Figma PNG is used as-is.
-   - **HTML TEXT** = element gets text-based animation (countdown, count-up, typewriter, word-by-word, number counter, or any animation that manipulates text content). The PNG must be replaced with HTML text.
+10. **Classify each element's render type** based on the user's animation choices:
+    - **PNG** = element gets no animation, or simple animation only (fade, slide, scale, rotate). The Figma PNG is used as-is.
+    - **HTML TEXT** = element gets text-based animation (countdown, count-up, typewriter, word-by-word, number counter, or any animation that manipulates text content). The PNG must be replaced with HTML text.
 
 #### Part C: Font Identification & Sourcing (only for HTML TEXT elements)
 
 **Skip this section entirely if no elements are classified as HTML TEXT.**
 
-9. **For each HTML TEXT element, identify the font:**
+11. **For each HTML TEXT element, identify the font:**
    - Visually inspect the text element against common font characteristics:
      - Serif vs sans-serif vs display/decorative
      - Geometric vs humanist vs grotesque (for sans-serif)
@@ -342,7 +440,7 @@ This phase combines element inventory, animation decisions, and font preparation
      - If user says different font → use what they say
      - If user doesn't know → suggest 2-3 closest matches, let user pick
 
-10. **Source each confirmed font:**
+12. **Source each confirmed font:**
     - **Check Google Fonts CDN first** → if found, note the `<link>` URL for later
     - **If NOT on Google Fonts** → ask user: **"[Font Name] isn't on Google Fonts. Can you provide the .ttf or .woff2 file?"**
     - Copy any user-provided font files into `assets/static-gif/<project>/fonts/`
@@ -352,7 +450,7 @@ This phase combines element inventory, animation decisions, and font preparation
       - **Mac:** `/Library/Fonts/` or `~/Library/Fonts/`
       - **Linux:** `/usr/share/fonts/` or `~/.local/share/fonts/`
 
-11. **Match text properties from each PNG** (these measurements will be used in Phase 2):
+13. **Match text properties from each PNG** (these measurements will be used in Phase 2):
     - **Font size**: derive from PNG height (`font-size ≈ PNG_height / 1.2`)
     - **Font weight**: compare stroke thickness (300–900)
     - **Color**: sample pixel hex directly from PNG
@@ -361,7 +459,7 @@ This phase combines element inventory, animation decisions, and font preparation
     - **Text transform**: uppercase / lowercase / none
     - **Additional**: text-shadow, stroke/outline, background highlight
 
-12. **Report animation plan to user:**
+14. **Report animation plan to user:**
     > **Animation Plan:**
     > | Element | Render Type | Animation | Font |
     > |---------|------------|-----------|------|
@@ -385,19 +483,34 @@ This phase combines element inventory, animation decisions, and font preparation
    **A. 1:1 → 9:16 Expansion** (when `InputAspectRatio` is `1:1` and output needs 9:16):
    - The output composition width and height **must** be set to 1080x1920.
    - **Keep original element sizes and positions**: Center the 1080x1080 design block vertically inside the 1080x1920 frame. Shift the vertical coordinate (`top`) of all original elements down by exactly `420px` (i.e. `top_new = top_original + 420px`). Do NOT scale, resize, or reposition them relative to each other.
-   - **Expand the Background — ask user which method:**
-     > **"How should I extend the background for 9:16?"**
-     > 1. **Programmatic** (free, local) — tile/mirror/repeat for patterns, extend gradient for gradients, solid fill for solid colors
-     > 2. **AI-generated** (Higgsfield) — generative outpainting for photographic/complex backgrounds
-     
-     - If user picks **Programmatic** or Higgsfield is not connected:
-       - *Pattern/Generic background*: Repeat, duplicate, or tile the pattern vertically.
-       - *Gradient*: Extend the gradient mathematically.
-       - *Solid color*: Fill with the sampled color.
-     - If user picks **AI-generated** AND Higgsfield MCP is connected:
+   - **Ask the user how the 9:16 should look** — the original 1:1 block sits centered (Y: 420–1500), leaving a 420px top region (Y: 0–420) and 420px bottom region (Y: 1500–1920) to fill. The user decides what goes in those new regions:
+
+     > **"I'm expanding your 1:1 design to 9:16 (1080×1920). The original design stays centered. I need to fill the top 420px and bottom 420px regions. Pick one:**
+     >
+     > **1. Extend the background only** — pattern repeats, gradient extends, or solid fill. The original 1:1 design stays as the visual centerpiece with a clean frame around it.
+     > **2. Move some existing elements into the new regions** — e.g., move the logo up to the top region, move the CTA down to the bottom region. (You tell me which elements, where they go, and any new sizes.)
+     > **3. Describe a layout for the new regions** — type what should appear in the top and bottom areas. (e.g., 'logo + brand name at top center, then disclaimer text at bottom', or 'sale badge top-right, social handles bottom center'). I'll build it from your description.
+     > **4. AI-generate an extended background** (Higgsfield) — for complex/photographic backgrounds. Original elements stay centered; the background is seamlessly outpainted to 1080×1920."
+
+     - Capture the user's choice as `Expansion916Mode`: `"bg_only"` / `"move_elements"` / `"described_layout"` / `"ai_outpaint"`
+     - If `"bg_only"`:
+       - *Pattern/Generic*: Repeat, duplicate, or tile the pattern vertically into the top + bottom 420px regions
+       - *Gradient*: Extend the gradient mathematically
+       - *Solid color*: Fill with the sampled color
+     - If `"move_elements"`:
+       - Apply the user's stated moves (which elements → which region → what position)
+       - Background fills the gaps using the same logic as `"bg_only"` for the remaining areas
+       - Updated positions go through Phase 3 overlay verification against the original 1:1 reference (for unchanged elements) and against the user's described layout (for moved elements)
+     - If `"described_layout"`:
+       - Parse the user's description into concrete element placements (use existing elements where mentioned, or ask the user to provide new assets for new elements like a logo, tagline, etc.)
+       - Render the described layout, show to user for confirmation BEFORE Phase 3 overlay verification
+       - For text descriptions ("brand name at top center"): treat as HTML TEXT elements, apply Phase 1 Part C font sourcing
+     - If `"ai_outpaint"` AND Higgsfield MCP is connected:
        - Send the original background + a prompt describing the scene to Higgsfield
-       - Request a 1080x1920 output that seamlessly extends the original
+       - Request a 1080×1920 output that seamlessly extends the original
        - Verify the generated background visually with the user before proceeding
+       - If Higgsfield is NOT connected, fall back to `"bg_only"` and tell the user
+     - For all modes: the 9:16 version still goes through Phase 3 overlay verification, but the reference is now the user-described/approved 9:16 layout rather than the original 1:1 static (since the 9:16 is a derivative, not the original).
 
    **B. 9:16 → 1:1 Crop** (when `InputAspectRatio` is `9:16` and output needs 1:1):
    - The output composition width and height **must** be set to 1080x1080.
@@ -439,51 +552,133 @@ This phase combines element inventory, animation decisions, and font preparation
 
 7. **DO NOT animate anything yet** — this phase is purely about pixel-perfect reconstruction.
 
-### PHASE 3: Position & Verify — OVERLAY METHOD (PRIMARY TECHNIQUE)
+### PHASE 3: Position & Verify — 50% OVERLAY METHOD (PRIMARY AND ONLY)
 
-**The overlay method IS the positioning technique. It is not a separate verification step — it is HOW you place elements. Non-negotiable.**
+**The overlay method IS the positioning technique. Place each element at 50% opacity over the full-opacity reference, render one frame, look for ghosting, adjust pixel positions, re-render. Repeat until ghosting is gone. No CV matching for placement. No edge detection. No template matching as a search method. Just place → render → look → adjust.**
 
-This phase verifies ALL elements — both PNG images and HTML text — against the static reference in a single pass. Because animation decisions and font sourcing happened in Phase 1, the composition already contains the correct element types. No conversion or replacement will happen after this point.
+#### Why overlay-only:
 
-#### How it works:
+- Every miss is obviously a miss — no silent CV false positives that lie with high confidence
+- Works identically for every element type: opaque PNGs, transparent PNGs, text PNGs, HTML text, logos, gradients, anything
+- The LLM reads the rendered overlay frame and judges visually — exactly what a human designer would do
+- No Python/OpenCV dependency for placement (kept optional as a one-shot accelerator for the background only)
 
-1. **Set up the composition with reference as base:**
-   - Add the reference static image as the BOTTOM layer at **FULL opacity** (z-index 0)
+#### Setup (once per project):
+
+1. **Clear previous overlay frames:**
+   - Delete contents of `static-to-gif/projects/<project>/overlay-frames/` if it exists
+   - Recreate the folder fresh
+
+2. **Add the reference static as the base layer:**
+   - BOTTOM layer, z-index 0, **FULL opacity** (1.0)
    - Source: `../assets/static-gif/<project>/static.png`
-   - This stays in the composition throughout the entire placement process
+   - `position: absolute; left: 0; top: 0; width: <composition-width>px; height: <composition-height>px;`
+   - Stays in the composition for the entire phase, removed only on final user approval
 
-2. **Add elements using SMART MATCHING ORDER (largest/most-opaque first):**
-   - **Matching order is critical for speed.** Process elements in this exact sequence:
-     1. **Full-bleed backgrounds** — largest area, highest confidence match. Locks immediately.
-     2. **Large opaque shapes** — colored rectangles, panels, gradient blocks.
-     3. **Product images / photos** — distinct pixel patterns, reliable template matching.
-     4. **Icons, badges, logos** — smaller but still opaque. Search only REMAINING unmatched regions.
-     5. **Text elements (PNG and HTML)** — match LAST, using edge-based matching.
-   - Each confirmed element's bounding box is **excluded from the search region** for all subsequent elements.
-   - Each element gets `opacity: 0.5`
+#### Placement order (largest/most-opaque first):
 
-3. **Use the right matching technique per element type:**
-   - **Opaque PNG elements (backgrounds, products, shapes):** Standard OpenCV template matching (`cv2.matchTemplate` with `TM_CCOEFF_NORMED`).
-   - **PNG text / transparent elements:** Edge-based matching — apply Canny edge detection to both element and reference region, match edge maps.
-   - **HTML text elements:** Render the HTML text at current position, compare against the corresponding region in the static reference:
-     - The HTML text must match the original text PNG in the static within 2px for width/height and 1px for position
-     - If mismatched → adjust font-size, letter-spacing, line-height, or position and re-verify
-     - **Do NOT proceed until HTML text is visually indistinguishable from the text in the static reference**
-   - **Fallback:** If both standard and edge-based matching return low confidence (< 0.6), fall back to restricted-ROI pixel-difference search within remaining unmatched region only.
-   - The overlay render is always the **final visual judge**.
+Process elements in this exact sequence — each locked element's region is visually excluded when judging subsequent elements:
 
-4. **Render ONE frame after each element:**
-   - Perfect alignment = element merges seamlessly with reference (no ghosting)
-   - Misalignment = visible doubling/ghosting → adjust and re-render
-   - Save overlay frames to `static-to-gif/projects/<project>/overlay-frames/`
+1. **Full-bleed background** — covers the whole frame, locks first
+2. **Large opaque shapes** — colored panels, gradient blocks, decorative rectangles
+3. **Product images / photos**
+4. **Icons, badges, logos**
+5. **Text elements (PNG and HTML)** — LAST
 
-5. **Once ALL elements are placed and verified:**
-   - Show the full overlay to the user for approval
-   - User may request fine adjustments — apply them
-   - Once approved → remove reference layer, remove all `opacity: 0.5`, write clean composition
-   - **Save verified positions** to `static-to-gif/projects/<project>/verified-positions.json` (element ID → {left, top, width, height, render_type: "png"|"html_text"})
+#### Per-element loop:
 
-**The overlay IS the process. Do not place elements without it. Do not verify without it. NEVER proceed to Phase 4 until the user explicitly approves.**
+For each element in the order above:
+
+1. **Estimate the initial position visually** from the static reference:
+   - Identify where the element sits in the static (read the image)
+   - Estimate the top-left corner in pixels
+   - Width and height come from the PNG file dimensions (never resize)
+   - For HTML TEXT: width = rendered width at the font properties matched in Phase 1
+
+2. **Insert the element** into the composition at the estimated position with `opacity: 0.5`:
+   ```html
+   <!-- PNG element -->
+   <img src="../assets/static-gif/<project>/elements/<file>.png"
+        style="position: absolute; left: <X>px; top: <Y>px;
+               width: <W>px; height: <H>px;
+               opacity: 0.5; z-index: <N>;">
+
+   <!-- HTML TEXT element -->
+   <div style="position: absolute; left: <X>px; top: <Y>px;
+               width: <W>px; opacity: 0.5; z-index: <N>;
+               font-family: '<Font>'; font-size: <S>px; font-weight: <W>;
+               color: #<HEX>; letter-spacing: <LS>em;">
+     <TEXT CONTENT>
+   </div>
+   ```
+
+3. **Render a single frame** at frame 0:
+   ```bash
+   npx hyperframes render --frame 0 --output "static-to-gif/projects/<project>/overlay-frames/<element>-attempt-<N>.png"
+   ```
+
+4. **Read the rendered frame and judge:**
+   - **Locked:** Element merges into the reference cleanly. The reference's version of that element is no longer visible separately — there is no doubling, no halo, no shifted edges. → record final position, move to next element.
+   - **Ghosting visible:** Two copies of the element are visible — the full-opacity reference version AND the 50%-opacity overlay version, shifted by some amount.
+     - Measure the shift: which way is the overlay off, and by how many pixels? (compare a known edge — top of headline, left of product, etc.)
+     - Adjust `left` and/or `top` by that exact pixel delta
+     - Re-render as `<element>-attempt-<N+1>.png`
+   - **Wrong size or wrong file:** Do NOT resize the element. Figma exports are at native dimensions. If size visibly disagrees with the static, the element file or the wrong file was picked — stop and ask the user.
+   - **Element doesn't appear in the static:** Stop and ask user — element may be unused or in the wrong folder.
+
+5. **Iterate until ghosting is gone — perfection is mandatory, not optional.** The 8-attempt limit is a sanity check, NOT a quality cap. If ghosting persists after 8 attempts, that's a signal of a deeper issue (wrong element file, font mismatch on HTML text, transparent edge that needs special handling) — STOP and ask the user. Do NOT "accept" misalignment and move on. There is no "close enough" mode in STMS.
+
+6. **Lock the element.** Record its final `{left, top, width, height, render_type}` and move to the next element.
+
+#### Optional CV accelerator (background ONLY):
+
+The full-bleed background is the one case where OpenCV template matching is reliable enough to skip visual estimation. If Python + OpenCV are installed AND the element being placed is the background:
+
+```python
+import cv2
+ref = cv2.imread("static.png")
+elem = cv2.imread("elements/background.png")
+res = cv2.matchTemplate(ref, elem, cv2.TM_CCOEFF_NORMED)
+_, conf, _, loc = cv2.minMaxLoc(res)
+if conf > 0.95:
+    left, top = loc  # use as initial position, then still verify with 50% overlay render
+```
+
+Then proceed to step 2 of the per-element loop above (insert at `opacity: 0.5`, render, judge). If ghosting appears, discard the CV result and switch to visual nudging.
+
+**Do NOT use CV for any other element type.** Text, products, logos, icons, shapes — all go through pure visual overlay placement. The CV accelerator exists solely to skip a few iterations on the background.
+
+#### Final approval gate:
+
+7. **Once ALL elements are placed and locked:**
+   - Render a final composite overlay frame with every element still at `opacity: 0.5` over the full-opacity reference
+   - Save as `static-to-gif/projects/<project>/overlay-frames/final-overlay.png`
+   - **Start HyperFrames Studio for the user.** Run `npm run dev` as a background process — this serves the composition (reference at full opacity + all elements at 0.5) on a local URL and opens it in the user's default browser. Studio hot-reloads, so any subsequent adjustments appear instantly without restart.
+   - **NEVER preview the overlay in any other way.** Specifically:
+     - Do NOT open the PNG with an OS image viewer (`start`, `open`, `xdg-open`, Preview.app, Photos, etc.)
+     - Do NOT embed or attempt to display the image inline in the Claude chat
+     - Do NOT use any CLI image viewer (`viu`, `chafa`, `kitty +kitten icat`, terminal-image, etc.)
+     - Do NOT describe the image to the user in lieu of showing it
+     - The ONLY user-facing preview mechanism in STMS is `npm run dev` (HyperFrames Studio in the browser)
+   - Once the dev server is up, tell the user: **"HyperFrames Studio is open in your browser showing the overlay — reference at full opacity, every element at 50%. Does everything look aligned?"**
+   - If `npm run dev` printed a URL but the browser didn't auto-open, include the URL in the message so the user can click it.
+   - User may request fine adjustments → apply, save → Studio hot-reloads → re-confirm in the same browser session
+
+8. **On explicit user approval:**
+   - Remove the reference layer from the composition
+   - Remove `opacity: 0.5` from all elements (set to 1.0 or remove the property)
+   - Write the clean composition file
+   - Save verified positions to `static-to-gif/projects/<project>/verified-positions.json`:
+     ```json
+     {
+       "elements": [
+         {"id": "background", "left": 0, "top": 0, "width": 1080, "height": 1080, "render_type": "png"},
+         {"id": "headline", "left": 84, "top": 120, "width": 420, "height": 60, "render_type": "html_text"}
+       ]
+     }
+     ```
+
+**The 50% overlay IS the process. No CV matching for placement (except optional background accelerator). No proceeding to Phase 4 until the user explicitly approves the final overlay.**
 
 ### PHASE 4: Animate
 
@@ -652,6 +847,9 @@ This phase verifies ALL elements — both PNG images and HTML text — against t
 - **NEVER skip overlay verification** — Phase 3 is MANDATORY
 - **NEVER guess positions** — overlay method only
 - **NEVER animate before user approves** placement in Phase 3
+- **NEVER trade quality for speed.** Perfect pixel placement, perfect font matching, perfect render. The user explicitly accepts longer runtimes for perfection. If a step would compromise quality (skip iterations, accept "close enough" alignment, substitute a font that's "good enough"), STOP and ask the user — never silently downgrade.
+- **NEVER recommend preset over custom (or vice versa)** in Phase 1B unless the user asks for a recommendation. Present both options neutrally and let the user choose.
+- **NEVER preview to the user via Claude, CLI tools, or OS image viewers** — the only user-facing preview mechanism is `npm run dev` (HyperFrames Studio in the browser). This applies to every phase, but is most critical at the Phase 3 alignment-approval gate: start the dev server BEFORE asking "does everything look aligned?"
 - **NEVER guess fonts** — visually identify and confirm with user in Phase 1
 - **NEVER run Windows commands on Mac** or vice versa — always use `Platform` variable
 - **Source files are NEVER moved or deleted** — only copied

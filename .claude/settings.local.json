@@ -4,6 +4,10 @@
       "Bash(*)",
       "Read(*)",
       "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "mcp__*",
       "Read(//c/Users/princ/.cache/hyperframes/whisper/models/**)"
     ]
   }
