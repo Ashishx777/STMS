@@ -113,6 +113,18 @@ Skip this if Mode A (elements provided).
 
 ## STEP 4 — Verify Alignment (Phase 3) — 50% OVERLAY METHOD ONLY
 
+> **🛑 BYPASS GUARD — READ BEFORE STARTING THIS STEP**
+>
+> **If you find yourself about to use `cv2.matchTemplate`, `cv2.Canny`, edge detection, feature matching, or ANY computer-vision method to FIND element positions — STOP. You are doing it wrong.**
+>
+> The ONLY method for placing elements in STMS is: insert element at `opacity: 0.5` over the reference at `opacity: 1.0`, render frame 0, look for ghosting, nudge in pixels, re-render. Repeat until ghosting is gone.
+>
+> The single exception is the optional one-shot background accelerator — and even that result is verified by a 50% overlay render. CV is NEVER the source of truth for placement.
+>
+> Your training data biases you toward "template matching" because that's the textbook approach for image alignment. STMS deliberately rejects that approach. The overlay method is slower but more reliable and has zero false-positive risk.
+>
+> If the workflow you just read suggests CV matching for anything except the background, the file is stale — pull latest from git and re-read `.claude/skills/gif/skill.md` and `.agents/static-to-gif/workflow.md`.
+
 **The 50% overlay is the PRIMARY AND ONLY placement method for every element type.** No OpenCV matching, no Canny edge detection, no ROI fallback for placement. Place at 0.5 opacity → render → look for ghosting → nudge → re-render.
 
 1. **Setup:** Add the static reference as bottom layer at FULL opacity (z-index 0). Clear previous overlay-frames folder.

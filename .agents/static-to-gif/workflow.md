@@ -702,6 +702,16 @@ If your CLI has no structured-question UI, fall back to numbered chat questions 
 
 ### PHASE 3: Position & Verify — 50% OVERLAY METHOD (PRIMARY AND ONLY)
 
+> **🛑 BYPASS GUARD — READ BEFORE STARTING THIS PHASE**
+>
+> **If you are about to call `cv2.matchTemplate`, `cv2.Canny`, edge detection, feature matching, ORB/SIFT, contour matching, or ANY computer-vision algorithm to FIND where an element goes — STOP. You are bypassing the method.**
+>
+> Your LLM training biases you toward template matching because that's the textbook approach for image alignment. STMS deliberately rejects that approach. The overlay method is the design choice — slower but more reliable, with zero false-positive risk. Do not "optimize" by reaching for CV.
+>
+> The ONLY allowed CV call in this phase is the optional one-shot background accelerator (`cv2.matchTemplate` on the full-bleed background ONLY, with conf > 0.95, still verified by a 50% overlay render afterward). Nothing else.
+>
+> If you catch yourself thinking "I'll just template-match this to find the position quickly" — that thought is the bug. Place the element at a visual estimate, render at 0.5 opacity, look at the result.
+
 **The overlay method IS the positioning technique. Place each element at 50% opacity over the full-opacity reference, render one frame, look for ghosting, adjust pixel positions, re-render. Repeat until ghosting is gone. No CV matching for placement. No edge detection. No template matching as a search method. Just place → render → look → adjust.**
 
 #### Why overlay-only:
