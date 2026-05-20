@@ -1,0 +1,46 @@
+# ── Dependencies ──
+node_modules/
+package-lock.json
+
+# ── Project Assets (user-specific, not part of the system) ──
+assets/static-gif/*/
+assets/static-gif/**/*
+
+# ── Renders & Output (generated per-project) ──
+renders/*.mp4
+renders/*.gif
+static-to-gif/output/
+static-to-gif/projects/*/overlay-frames/
+static-to-gif/projects/*/extracted/
+static-to-gif/projects/*/*.py
+static-to-gif/projects/*/positions.json
+
+# ── User Preferences (generated per-user on first run) ──
+static-to-gif/stms-preferences.json
+
+# ── Generated Audio (per-project) ──
+assets/*/audio/
+assets/*/generated/
+
+# ── Temporary Files ──
+temp_*
+*.wav
+*.tmp
+.DS_Store
+Thumbs.db
+
+# ── IDE / Editor ──
+.vscode/
+.idea/
+
+# ── Documents (not part of the system) ──
+HyperFrames-Workflow-Guide.docx
+
+# ── Keep the directory structure ──
+# .gitkeep files inside empty dirs are tracked
+!assets/static-gif/.gitkeep
+!static-to-gif/imports/.gitkeep
+!static-to-gif/projects/.gitkeep
+!static-to-gif/output/.gitkeep
+!renders/.gitkeep
+!compositions/.gitkeep

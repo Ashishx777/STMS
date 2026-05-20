@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Read(//c/Users/princ/.cache/hyperframes/whisper/models/**)"
+    ]
+  }
+}
