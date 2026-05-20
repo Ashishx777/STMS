@@ -12,7 +12,7 @@ Examples (status):
 - BAD: "Great! Setup is complete. All prerequisites are installed..."
 - GOOD: "Setup done. /GIF to start."
 
-**Questions to user:** properly formatted. List all options clearly with numbers/letters, include relevant context, make the choice obvious. Clarity over brevity HERE.
+**Questions to user:** USE the `AskUserQuestion` tool — it renders a popup with clickable options the user can select. Do NOT ask multi-choice questions as free-text chat prompts. Free-text chat is only for clarifications and follow-ups. List all options clearly, include relevant context, make the choice obvious. Clarity over brevity HERE.
 
 Example (question):
 - GOOD:
@@ -28,7 +28,11 @@ Example (question):
 
 ## FIRST RUN AUTO-SETUP
 
-**If this is a fresh clone (no `node_modules/`, no `.hyperframes/`, no `stms-preferences.json`), run the full setup automatically. Do NOT ask — just do it.**
+**Trigger condition:** the file `static-to-gif/stms-preferences.json` is MISSING. This is the canonical signal of a fresh clone — `node_modules/` and `.hyperframes/` are gitignored and unreliable indicators.
+
+**When the user types `/GIF` (or any STMS command) and preferences are missing → run the full setup BEFORE attempting Phase 0.** Do NOT ask "should I run setup?" — just run it. The first thing the user sees is Q0 (permission mode).
+
+**If the user opens Claude Code without typing anything yet:** wait for them to type a command. Do NOT pre-emptively run setup just because they opened the project. Setup runs on first STMS command.
 
 ### Auto-Setup Sequence:
 

@@ -12,7 +12,14 @@ Examples (status):
 - BAD: "Great! I've successfully placed the background. The overlay shows perfect alignment..."
 - GOOD: "Background locked. Next: headline."
 
-**Questions to user:** properly formatted. List all options clearly with numbers/letters, include the relevant context, make the choice obvious. Clarity over brevity HERE — the user needs to make a good decision. No compression of options into one line.
+**Questions to user:** USE THE STRUCTURED-QUESTION POPUP UI of your CLI:
+- **Claude Code:** call the `AskUserQuestion` tool — it renders a popup with clickable options
+- **Antigravity / Cursor / others:** use their equivalent interactive selection UI if available
+- **No structured UI available:** fall back to numbered chat questions (last resort only)
+
+Structured popups apply to: Q0 (permission mode), Q1–Q3 (first-run preferences), Phase 1B (animation choices B1–B5 + timing), Phase 1C (font picker), Phase 2 (1:1→9:16 expansion mode), Phase 3 (final overlay approval), Phase 5B (audio yes/no + SFX picker), Phase 6 (re-render versioning).
+
+Even with structured UI, list ALL options clearly with relevant context. Make the choice obvious. Clarity over brevity HERE — the user needs to make a good decision.
 
 Example (question):
 - GOOD:
@@ -71,22 +78,42 @@ compositions/
 
 ## Step-by-Step Workflow
 
+### MANDATORY GATE — Run BEFORE any phase
+
+**On every `/GIF` invocation, before doing ANYTHING ELSE, run this check sequence. No exceptions. Do not skip even if the user provided a path argument.**
+
+```
+1. Does `static-to-gif/stms-preferences.json` exist?
+   NO  → run FIRST RUN SETUP (below) — ask Q0–Q3, save preferences, install missing prereqs
+   YES → load preferences and proceed
+
+2. Are required binaries (node, ffmpeg) on PATH?
+   NO  → run the auto-install for the detected platform from CLAUDE.md / AGENTS.md Step 2
+   YES → proceed
+
+3. Are HyperFrames skills installed (`.agents/skills/hyperframes/SKILL.md` exists)?
+   NO  → run `npx --yes skills add heygen-com/hyperframes`
+   YES → proceed
+```
+
+**This gate is non-negotiable.** A new user typing `/GIF` for the first time MUST be walked through setup before Phase 0. Do NOT attempt the folder picker or any other Phase 0 work if preferences are missing — the user hasn't agreed to permission mode yet.
+
+If the gate fails (e.g., user cancels Q0, prereq install fails), STOP and report the blocker. Do not silently fall back to Phase 0.
+
+---
+
 ### FIRST RUN SETUP: One-Time Preferences
 
 **On the very first `/GIF` run in a project, check for `static-to-gif/stms-preferences.json`.** If it doesn't exist, ask the user these questions ONCE, save their answers, and never ask again:
 
-**Q0 — Permission mode (asked FIRST, before anything else):**
+**Q0 — Permission mode (asked FIRST, before anything else) — ASK VIA STRUCTURED POPUP:**
 
-```
-"Before we start: do you want me to allow all commands automatically, or
-should I ask before each one?"
-
-1. Allow all (recommended for fast workflow) — I'll write broad permissions
-   to .claude/settings.local.json so you never see approval prompts during
-   STMS runs.
-2. Ask each time — Claude Code will prompt you before running any command
-   not already in your global allow list.
-```
+*Header:* `Permission mode`
+*Question:* `Allow all commands automatically, or ask before each one?`
+*Multi-select:* `false`
+*Options:*
+- `Allow all (Recommended)` — *description: Broad permissions written to .claude/settings.local.json. No approval prompts during STMS runs.*
+- `Ask each time` — *description: Your CLI will prompt before running any command not already in your global allow list.*
 
 Based on the answer:
 - If **"Allow all"** → write/merge into `.claude/settings.local.json`:
@@ -108,21 +135,34 @@ Based on the answer:
   Preserve any existing entries (merge, don't overwrite). Save `permission_mode: "allow_all"` to preferences.
 - If **"Ask each time"** → leave `.claude/settings.local.json` untouched. Save `permission_mode: "ask_each_time"` to preferences. The user accepts that Claude Code will prompt per command.
 
-**Q1–Q3 — Operational preferences (asked after Q0):**
+**Q1–Q3 — Operational preferences (asked after Q0) — ASK VIA STRUCTURED POPUP, ONE QUESTION AT A TIME:**
 
-```
-1. After rendering, do you want me to automatically generate the alternate
-   aspect ratio version?
-   → Always yes / Always no / Ask each time
+**Q1 — Aspect ratio conversion:**
+*Header:* `Alt aspect ratio`
+*Question:* `After rendering, automatically generate the alternate aspect ratio (1:1 ↔ 9:16)?`
+*Multi-select:* `false`
+*Options:*
+- `Always yes` — *description: Auto-generate the alternate version every time.*
+- `Always no` — *description: Only render the input aspect ratio.*
+- `Ask each time` — *description: Prompt me at the end of each run.*
 
-2. After rendering, do you want me to automatically clean up temporary
-   debug files?
-   → Always yes / Always no / Ask each time
+**Q2 — Cleanup:**
+*Header:* `Cleanup`
+*Question:* `After rendering, automatically clean up temporary debug files (overlay frames, etc.)?`
+*Multi-select:* `false`
+*Options:*
+- `Always yes` — *description: Auto-delete overlay-frames/, extracted/, helper PNGs. Keep verified-positions.json + final outputs.*
+- `Always no` — *description: Keep all temp files for inspection.*
+- `Ask each time` — *description: Prompt me at the end of each run.*
 
-3. When re-rendering, should I overwrite the previous file or create a new
-   version?
-   → Always overwrite / Always new version / Ask each time
-```
+**Q3 — Re-render versioning:**
+*Header:* `Re-render`
+*Question:* `When you ask me to re-render an existing project, overwrite the previous file or save as a new version?`
+*Multi-select:* `false`
+*Options:*
+- `Always overwrite` — *description: Replace the existing file in place.*
+- `Always new version` — *description: Save as project-v2.gif, project-v3.gif, etc.*
+- `Ask each time` — *description: Prompt me each re-render.*
 
 Save to `static-to-gif/stms-preferences.json`:
 ```json
@@ -198,7 +238,10 @@ The agent runs commands knowing Claude Code may prompt the user. The agent must 
 The agent must detect the platform and ensure the required OS-level permissions are in place. If any are missing, guide the user through granting them ONCE — then never mention it again.
 
 **Windows:**
-- No special OS permissions needed. PowerShell and Node.js run without restrictions by default.
+- **PowerShell Execution Policy:** new user accounts default to `Restricted` which blocks scripts. The agent must invoke PowerShell with `-ExecutionPolicy Bypass` for every PowerShell command (folder picker, install scripts, etc.) — see Phase 0 picker code. Do NOT permanently change the user's policy with `Set-ExecutionPolicy`.
+- **PATH after winget install:** newly installed binaries are added to the system PATH registry, but the current shell session (and child Bash tool processes) may not see them until restart. After installing Node/FFmpeg/Python via winget:
+  1. The setup script refreshes `$env:PATH` from the registry — works for PowerShell commands in the same session
+  2. For agent Bash tool calls that still can't find the binary → tell user: **"Tools installed but not visible in this session. Restart Claude Code (or your CLI) and run `/GIF` again."**
 - If Windows Defender blocks a script → tell user to allow it in Windows Security settings.
 
 **Mac (macOS has stricter security — handle with care):**
@@ -235,9 +278,9 @@ The agent must detect the platform and ensure the required OS-level permissions 
    - Even if `/GIF <path>` is used, the Agent **must** confirm this path with the user.
    - **Use the platform-appropriate folder picker:**
 
-     **Windows:**
+     **Windows** (invoke via `powershell.exe -ExecutionPolicy Bypass -Command "..."` to bypass Restricted policy on fresh user accounts):
      ```powershell
-     Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Select Folder (navigate inside the folder and click Open)'; $d.FileName = 'Select this folder'; $d.CheckFileExists = $false; $d.ValidateNames = $false; if ($d.ShowDialog() -eq 'OK') { Split-Path $d.FileName } else { Write-Output 'CANCELLED' }
+     powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Select Folder (navigate inside the folder and click Open)'; $d.FileName = 'Select this folder'; $d.CheckFileExists = $false; $d.ValidateNames = $false; if ($d.ShowDialog() -eq 'OK') { Split-Path $d.FileName } else { Write-Output 'CANCELLED' }"
      ```
 
      **Mac:**
@@ -255,15 +298,19 @@ The agent must detect the platform and ensure the required OS-level permissions 
    - A **static reference image** (the largest `.png`, `.jpg`, or `.webp` file)
    - An **`elements/` subfolder** with individual layer PNGs
 
-3. **If no `elements/` folder found — ASK the user:**
-   > **"I found a static image but no elements folder. How do you want to proceed?"**
-   > 1. **"I have elements in a different folder"** → ask for the path, use those
-   > 2. **"Cut out the elements from the static using AI"** → enter **Mode B** (AI-assisted cutout — see Phase 1 Mode B)
-   > 3. **"I’ll export them from Figma and come back"** → stop, wait for user
-   
+3. **If no `elements/` folder found — ASK VIA STRUCTURED POPUP:**
+
+   *Header:* `Missing elements`
+   *Question:* `I found a static image but no elements folder. How do you want to proceed?`
+   *Multi-select:* `false`
+   *Options:*
+   - `I have elements in a different folder` — *description: Provide a different path; I'll use those PNGs.*
+   - `Cut out elements from the static using AI` — *description: Enter Mode B — AI-assisted cutout from the static image.*
+   - `I'll export from Figma and come back` — *description: Stop here. Re-run /GIF after you've added the elements folder.*
+
    Store the user's choice as `ElementMode`: `"exported"` (Mode A) or `"ai_cutout"` (Mode B).
-   
-   **Do NOT assume Mode B automatically.** Only enter AI cutout mode when the user explicitly chooses option 2.
+
+   **Do NOT assume Mode B automatically.** Only enter AI cutout mode when the user explicitly chooses that option.
 
 4. **Derive the project name from the source folder name** — no visual analysis, no brand detection. Just slugify the source folder's basename (lowercase, replace non-alphanumeric with dashes, collapse repeats, trim edges).
 
@@ -321,17 +368,28 @@ This phase combines element inventory, animation decisions, and font preparation
    - Decorative shapes (circles, lines, gradients)
    - Any other distinct visual component
 
-2. **Present the element map to user for confirmation:**
-   > **"I identified these elements in the static:"**
+2. **Present the element map to user — STRUCTURED POPUP:**
+
+   First, show the identified element list in chat (it can be long):
+   > **"I identified these elements in the static:**
    > 1. Background — gradient with grid pattern
    > 2. Product image (purifier, center) — ~380×450px
    > 3. Headline text — "LOWEST PRICE EVER"
    > 4. Price badge — "₹4,999" bottom-right
    > 5. Logo — top-left corner
-   > ...
-   > **"Is this complete? Any elements I missed or should split differently?"**
-   
-   **Do NOT proceed until user confirms the element list.**
+   > ..."
+
+   Then ask via popup:
+
+   *Header:* `Element list`
+   *Question:* `Is this element list complete and correctly split?`
+   *Multi-select:* `false`
+   *Options:*
+   - `Looks correct — proceed with cutout` — *description: All elements identified. Start AI cutout from foreground to background.*
+   - `Missing elements (describe in chat)` — *description: I missed something. You'll tell me what to add.*
+   - `Splits wrong (describe in chat)` — *description: Some elements should be merged or split differently. You'll tell me how.*
+
+   **Do NOT proceed with cutout until the user picks "Looks correct".**
 
 3. **Cut out each element one by one:**
    - Work from **foreground to background** (top layers first)
@@ -339,12 +397,26 @@ This phase combines element inventory, animation decisions, and font preparation
      a. **Identify the element boundary** in the static (bounding box)
      b. **Use AI segmentation to isolate it:**
         - `npx hyperframes remove-background` (u2net) for objects with clear edges
-        - If u2net produces poor results (complex edges, hair, transparency) AND Higgsfield MCP is connected → ask user: **"The cutout for [element] isn’t clean enough. Want me to use AI (Higgsfield) for a better extraction?"**
+        - If u2net produces poor results (complex edges, hair, transparency) AND Higgsfield MCP is connected → **ASK VIA STRUCTURED POPUP:**
+          *Header:* `Cutout quality`
+          *Question:* `The u2net cutout for "[element]" has rough edges. Use Higgsfield (AI) for a cleaner extraction?`
+          *Multi-select:* `false`
+          *Options:*
+          - `Yes — use Higgsfield` — *description: AI-powered extraction. Better for hair, complex edges, semi-transparency.*
+          - `No — refine with OpenCV` — *description: Keep u2net result, refine with contour detection.*
+          - `Skip this element` — *description: Don't include this element. You'll add it manually later.*
         - If Higgsfield not connected or user declines → use OpenCV contour detection + manual refinement
      c. **Save the cutout** as `assets/static-gif/<project>/elements/<element-name>.png` at native dimensions
      d. **Generative fill the hole** left in the working background:
         - If background is solid/gradient/pattern → programmatic fill (PIL/numpy) — no AI needed
-        - If background is photographic/complex AND Higgsfield MCP is connected → ask user: **"The background behind [element] needs AI fill. Use Higgsfield to generate it?"**
+        - If background is photographic/complex AND Higgsfield MCP is connected → **ASK VIA STRUCTURED POPUP:**
+          *Header:* `Background fill`
+          *Question:* `The background behind "[element]" needs to be reconstructed. How should I fill the hole?`
+          *Multi-select:* `false`
+          *Options:*
+          - `Use Higgsfield (AI generative fill)` — *description: AI generates a seamless fill. Best for photographic / complex backgrounds.*
+          - `Use OpenCV inpaint (local)` — *description: Local algorithmic inpainting. Faster, works for simple backgrounds.*
+          - `Leave the hole (I'll fix manually)` — *description: Save the cutout but skip the fill step.*
         - If user declines or no Higgsfield → use OpenCV `inpaint` as fallback
      e. **Verify the cutout** — place cutout at 50% opacity over original static at the same position. If it merges cleanly with zero ghosting → cutout is good. If ghosting visible → refine edges and retry.
 
@@ -385,62 +457,136 @@ This phase combines element inventory, animation decisions, and font preparation
    > | 4 | price-tag.png | TEXT | 200×45 | "₹4,999" |
    > | ... | | | | |
 
-#### Part B: Animation Decisions
+#### Part B: Animation Decisions — USE STRUCTURED POPUP QUESTIONS
+
+**IMPORTANT — UI mechanism:** Use the agent's structured-question UI (Claude Code: `AskUserQuestion` tool; Antigravity / Cursor: their equivalent interactive question UI). Do NOT ask these as free-text chat prompts. The user clicks options, not types responses. This applies to questions B1–B5 below.
+
+If your CLI has no structured-question UI, fall back to numbered chat questions — but only as a last resort. Structured UI is the default.
+
+---
 
 6. **Check `.agents/static-to-gif/animation-presets.md`** — find any presets that could fit this layout. Note them but do not auto-apply.
 
-7. **Present the user with an EXPLICIT preset-vs-custom choice.** Do not push them in either direction. Both options must always be offered:
+7. **Ask the structured-question sequence (5 questions, one popup each).** Wait for the answer before showing the next question.
 
-   > **Animation choice — pick one:**
-   >
-   > **Option A — Use a preset** (faster, proven)
-   > Matching presets for this layout:
-   > 1. **"[Preset Name]"** — [brief description, used in [project]]
-   > 2. **"[Preset Name]"** — [brief description, used in [project]]
-   > (If no presets match, say so explicitly and only offer Option B.)
-   >
-   > **Option B — Custom animation** (per-element control)
-   > Suggested per-element animations for this design:
-   > - **[Element/group]**: e.g. "Products: Slide in from left/right with fade + blur"
-   > - **[Element/group]**: e.g. "Price: Count-up from 0 to ₹4,999"
-   > - **[Element/group]**: e.g. "Headline: Typewriter reveal"
-   > - **[Element/group]**: e.g. "Logo: Subtle fade in"
-   >
-   > **Which do you want — preset (which number?) or custom?**
+   ---
 
-8. **If user picks a preset**, apply it as-is. They may still tweak it after preview in Phase 5.
+   **Question B1 — Which elements to animate?**
 
-9. **If user picks custom**, ask the follow-up options:
+   *Header:* `Animate which`
+   *Question:* `Which elements should be animated?`
+   *Multi-select:* `true`
+   *Options:* the elements from the Phase 1 Part A inventory table, each listed individually. Plus:
+   - `All elements` (selects everything in one click)
+   - `Other (describe in chat)` — for when the user wants a group like "all text" or "just products"
 
-   > **Custom animation options:**
-   > - Speed: Fast (0.5s) / Medium (0.8s) / Slow (1.2s)?
-   > - Stagger: Tight (0.1s gaps) / Relaxed (0.3s gaps)?
-   > - Easing: Smooth (power2.out) / Snappy (back.out) / Bouncy (elastic)?
-   > - Loop: Infinite / Once / Play + reverse?
-   > - Total duration: 3s / 5s / 8s?
+   Example options (built from inventory):
+   - All elements
+   - background.png
+   - headline.png
+   - product-purifier.png
+   - price-tag.png
+   - logo.png
+   - Other (describe in chat)
 
-   **Do NOT proceed until the user answers.** The agent does NOT have a preference between preset and custom — never recommend one over the other unless the user asks for a recommendation.
+   ---
 
-10. **Classify each element's render type** based on the user's animation choices:
-    - **PNG** = element gets no animation, or simple animation only (fade, slide, scale, rotate). The Figma PNG is used as-is.
-    - **HTML TEXT** = element gets text-based animation (countdown, count-up, typewriter, word-by-word, number counter, or any animation that manipulates text content). The PNG must be replaced with HTML text.
+   **Question B2 — Animation type: preset or custom?**
+
+   *Header:* `Animation type`
+   *Question:* `How do you want to animate the selected elements?`
+   *Multi-select:* `false`
+   *Options:*
+   - `Use a matching preset` — *description: Apply one of the saved presets from past projects (faster, proven).*
+   - `Custom — describe what you want` — *description: Specify per-element animation in your own words (e.g., "word by word", "blur in one by one").*
+
+   If there are NO matching presets in `animation-presets.md`, skip B2 and go directly to custom (B3 skipped, B4 asks the description).
+
+   ---
+
+   **Question B3 — Pick the preset** (only if B2 = `Use a matching preset`)
+
+   *Header:* `Pick preset`
+   *Question:* `Which preset?`
+   *Multi-select:* `false`
+   *Options:* every preset from `animation-presets.md` that could fit this layout, listed individually with one-line descriptions:
+   - `Slide-In Fade Blur (Left/Right)` — *description: Products slide from sides with fade + blur. Used in atovio-colour-picker.*
+   - `Counter Count-Up` — *description: Numbers animate from 0 to target. Used in atovio-wearable-purifier.*
+   - `Delayed Highlight Pop` — *description: Static scene with delayed accent pops on key elements.*
+   - (etc., from animation-presets.md)
+   - `None of these fit — describe custom` — *description: Switch to custom description.*
+
+   ---
+
+   **Question B4 — Animation style picker** (only if B2 = `Custom — describe what you want`)
+
+   *Header:* `Animation style`
+   *Question:* `Pick the style for the selected elements (or describe in chat for "Other"):`
+   *Multi-select:* `false`
+   *Options:* concrete animation styles, each with a one-line description:
+   - `Fade in — one by one` — *description: Each element fades in sequentially with stagger.*
+   - `Blur in — one by one` — *description: Each element starts blurred and sharpens, sequentially.*
+   - `Slide in from sides` — *description: Elements slide in from left/right based on position.*
+   - `Slide in from bottom` — *description: Elements rise into place from below.*
+   - `Scale pop (overshoot)` — *description: Elements pop in with back-ease overshoot.*
+   - `Word by word` — *description: Text reveals word by word (HTML TEXT only).*
+   - `Typewriter` — *description: Text appears character by character.*
+   - `Count-up` — *description: Numeric text counts from 0 to target value.*
+   - `Other (describe in chat)` — *description: Type a description of what you want.*
+
+   ---
+
+   **Question B5 — Leave non-selected elements static?**
+
+   *Header:* `Non-animated`
+   *Question:* `For elements you did NOT select to animate in B1 — what should they do?`
+   *Multi-select:* `false`
+   *Options:*
+   - `Leave them fully static` — *description: They appear from frame 0 and never move. (Recommended)*
+   - `Fade them in at start` — *description: Subtle fade-in (0.3s) at t=0 so they don't pop in jarringly.*
+   - `Hide them entirely` — *description: Remove them from the composition.*
+
+   ---
+
+8. **Ask timing follow-ups (one popup):**
+
+   *Header:* `Timing`
+   *Question:* `Animation timing settings:`
+   *Multi-select:* `true` — user picks one option per row
+   *Options:* present as four grouped sub-options. If your structured UI doesn't support sub-grouping, ask four separate popups in sequence (Speed → Stagger → Easing → Duration):
+   - **Speed:** Fast (0.5s) / Medium (0.8s) / Slow (1.2s)
+   - **Stagger:** Tight (0.1s gaps) / Relaxed (0.3s gaps) / None (all at once)
+   - **Easing:** Smooth (power2.out) / Snappy (back.out) / Bouncy (elastic)
+   - **Total duration:** 3s / 5s / 8s
+   - **Loop:** Infinite / Once / Play + reverse
+
+9. **Classify each element's render type** based on the user's choices:
+   - **PNG** = element gets no animation, or simple animation only (fade, slide, scale, rotate). The Figma PNG is used as-is.
+   - **HTML TEXT** = element gets text-based animation (word-by-word, typewriter, count-up, or any animation that manipulates text content). The PNG must be replaced with HTML text — Part C font sourcing applies.
+
+**Agent has NO preference between preset and custom.** Never recommend one over the other unless the user asks. Both paths produce identical-quality output.
 
 #### Part C: Font Identification & Sourcing (only for HTML TEXT elements)
 
 **Skip this section entirely if no elements are classified as HTML TEXT.**
 
-11. **For each HTML TEXT element, identify the font:**
-   - Visually inspect the text element against common font characteristics:
-     - Serif vs sans-serif vs display/decorative
-     - Geometric vs humanist vs grotesque (for sans-serif)
-     - Weight (thin/light/regular/medium/bold/black) — compare stroke thickness
-     - Style (normal/italic/condensed/extended)
-   - **Suggest a match to the user**: **"[element-name] looks like [Font Name] [Weight]. Is that correct?"**
-     - If user confirms → proceed
-     - If user says different font → use what they say
-     - If user doesn't know → suggest 2-3 closest matches, let user pick
+10. **For each HTML TEXT element, identify the font — ASK VIA STRUCTURED POPUP:**
 
-12. **Source each confirmed font:**
+    First, visually inspect the text against common font characteristics (serif vs sans-serif, weight, style, geometric vs humanist) and form a top guess plus 2 alternates.
+
+    Then ask via popup (one per HTML TEXT element):
+
+    *Header:* `Font for [element]`
+    *Question:* `Which font is "[element-name]" using?` (show the text content in the question, e.g., `Which font is the headline "LOWEST PRICE EVER" using?`)
+    *Multi-select:* `false`
+    *Options:* the top guess + 2 closest alternates + free-text fallback:
+    - `[Top guess font + weight]` — *description: e.g., "Bebas Neue Bold. Used in past projects."*
+    - `[Alt 1]` — *description: e.g., "Anton Regular. Similar geometric grotesque."*
+    - `[Alt 2]` — *description: e.g., "Oswald Bold. Similar condensed sans-serif."*
+    - `I don't know — pick the closest visually` — *description: Agent picks top guess, you can correct after preview.*
+    - `Other (type in chat)` — *description: Specify font name in chat.*
+
+11. **Source each confirmed font:**
     - **Check Google Fonts CDN first** → if found, note the `<link>` URL for later
     - **If NOT on Google Fonts** → ask user: **"[Font Name] isn't on Google Fonts. Can you provide the .ttf or .woff2 file?"**
     - Copy any user-provided font files into `assets/static-gif/<project>/fonts/`
@@ -450,7 +596,7 @@ This phase combines element inventory, animation decisions, and font preparation
       - **Mac:** `/Library/Fonts/` or `~/Library/Fonts/`
       - **Linux:** `/usr/share/fonts/` or `~/.local/share/fonts/`
 
-13. **Match text properties from each PNG** (these measurements will be used in Phase 2):
+12. **Match text properties from each PNG** (these measurements will be used in Phase 2):
     - **Font size**: derive from PNG height (`font-size ≈ PNG_height / 1.2`)
     - **Font weight**: compare stroke thickness (300–900)
     - **Color**: sample pixel hex directly from PNG
@@ -459,7 +605,7 @@ This phase combines element inventory, animation decisions, and font preparation
     - **Text transform**: uppercase / lowercase / none
     - **Additional**: text-shadow, stroke/outline, background highlight
 
-14. **Report animation plan to user:**
+13. **Report animation plan to user:**
     > **Animation Plan:**
     > | Element | Render Type | Animation | Font |
     > |---------|------------|-----------|------|
@@ -483,14 +629,16 @@ This phase combines element inventory, animation decisions, and font preparation
    **A. 1:1 → 9:16 Expansion** (when `InputAspectRatio` is `1:1` and output needs 9:16):
    - The output composition width and height **must** be set to 1080x1920.
    - **Keep original element sizes and positions**: Center the 1080x1080 design block vertically inside the 1080x1920 frame. Shift the vertical coordinate (`top`) of all original elements down by exactly `420px` (i.e. `top_new = top_original + 420px`). Do NOT scale, resize, or reposition them relative to each other.
-   - **Ask the user how the 9:16 should look** — the original 1:1 block sits centered (Y: 420–1500), leaving a 420px top region (Y: 0–420) and 420px bottom region (Y: 1500–1920) to fill. The user decides what goes in those new regions:
+   - **Ask the user how the 9:16 should look — STRUCTURED POPUP** — the original 1:1 block sits centered (Y: 420–1500), leaving a 420px top region (Y: 0–420) and 420px bottom region (Y: 1500–1920) to fill:
 
-     > **"I'm expanding your 1:1 design to 9:16 (1080×1920). The original design stays centered. I need to fill the top 420px and bottom 420px regions. Pick one:**
-     >
-     > **1. Extend the background only** — pattern repeats, gradient extends, or solid fill. The original 1:1 design stays as the visual centerpiece with a clean frame around it.
-     > **2. Move some existing elements into the new regions** — e.g., move the logo up to the top region, move the CTA down to the bottom region. (You tell me which elements, where they go, and any new sizes.)
-     > **3. Describe a layout for the new regions** — type what should appear in the top and bottom areas. (e.g., 'logo + brand name at top center, then disclaimer text at bottom', or 'sale badge top-right, social handles bottom center'). I'll build it from your description.
-     > **4. AI-generate an extended background** (Higgsfield) — for complex/photographic backgrounds. Original elements stay centered; the background is seamlessly outpainted to 1080×1920."
+     *Header:* `9:16 layout`
+     *Question:* `Expanding your 1:1 design to 9:16 (1080×1920). Original design stays centered. How should I fill the top 420px and bottom 420px regions?`
+     *Multi-select:* `false`
+     *Options:*
+     - `Extend the background only` — *description: Pattern repeats, gradient extends, or solid fill. Original design stays as the visual centerpiece with a clean frame.*
+     - `Move existing elements into the new regions` — *description: e.g., logo moves up to top, CTA moves down to bottom. You tell me which elements go where in a follow-up.*
+     - `Describe a layout for the new regions` — *description: Type a description in chat (e.g., "logo + brand name at top, disclaimer at bottom"). I'll build it.*
+     - `AI-generate an extended background (Higgsfield)` — *description: Generative outpainting for complex/photographic backgrounds. Original elements stay centered.*
 
      - Capture the user's choice as `Expansion916Mode`: `"bg_only"` / `"move_elements"` / `"described_layout"` / `"ai_outpaint"`
      - If `"bg_only"`:
@@ -737,10 +885,14 @@ Then proceed to step 2 of the per-element loop above (insert at `opacity: 0.5`, 
 
 **This phase runs ONLY after the user has previewed and approved the animation in Phase 5.** The animation must be finalized before adding sound.
 
-1. **Ask the user:**
-   > **"The animation looks good. Do you want to add sound effects or audio?"**
-   > - **Yes** → proceed with audio planning
-   > - **No** → skip to Phase 6 (render silent)
+1. **Ask the user — STRUCTURED POPUP:**
+
+   *Header:* `Sound?`
+   *Question:* `The animation looks good. Add sound effects or audio?`
+   *Multi-select:* `false`
+   *Options:*
+   - `Yes — add SFX` — *description: I'll suggest SFX matched to each animation (whoosh, pop, typing). Requires ElevenLabs MCP or your own audio files.*
+   - `No — render silent` — *description: Skip to Phase 6, no audio.*
 
    **Do NOT suggest or plan SFX earlier in the pipeline.** Audio comes after visual is locked.
 
@@ -749,19 +901,33 @@ Then proceed to step 2 of the per-element loop above (insert at `opacity: 0.5`, 
    - If ElevenLabs is NOT connected → inform user: **"ElevenLabs MCP is not connected. You can connect it in your Claude Code settings to generate SFX, or provide your own audio files."**
    - If user provides their own audio files → copy to `assets/static-gif/<project>/audio/` and skip to step 5
 
-3. **Suggest SFX per animation type:**
-   > **"Based on your animations, here are suggested sound effects:"**
+3. **Suggest SFX per animation type — STRUCTURED POPUP:**
+
+   First, show the suggestion table in chat:
+   > **"Based on your animations, here are suggested sound effects:**
    > | Element | Animation | Suggested SFX |
    > |---------|-----------|---------------|
    > | Products | Slide in from left | Soft whoosh/swoosh |
    > | Price | Count-up 0→₹4,999 | Tick/beep on each digit |
    > | Headline | Typewriter reveal | Keyboard typing sounds |
    > | Badge | Scale pop-in | Pop/click |
-   > | Logo | Fade in | Subtle ambient rise |
-   >
-   > **"Want all of these, some, or different sounds? You can also add background music."**
-   
-   **User picks which SFX they want.** Do NOT generate anything the user didn’t approve.
+   > | Logo | Fade in | Subtle ambient rise |"
+
+   Then ask via popup (multi-select so user can pick any combination):
+
+   *Header:* `Pick SFX`
+   *Question:* `Which sounds do you want? Pick any combination.`
+   *Multi-select:* `true`
+   *Options:* one row per suggested SFX, plus background music + none:
+   - `Products: whoosh on slide` — *description: Soft whoosh synced to each slide-in.*
+   - `Price: tick on count-up` — *description: Tick/beep on each digit change.*
+   - `Headline: typewriter` — *description: Keyboard typing sound during reveal.*
+   - `Badge: pop` — *description: Pop/click on scale-in.*
+   - `Logo: ambient rise` — *description: Subtle ambient sweep on fade-in.*
+   - `Background music` — *description: Looping music bed under the SFX.*
+   - `None of these — describe in chat` — *description: Type your own SFX descriptions.*
+
+   **Do NOT generate anything the user didn't pick.**
 
 4. **Generate approved SFX via ElevenLabs:**
    - For each approved SFX:
