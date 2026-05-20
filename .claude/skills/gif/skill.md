@@ -111,24 +111,34 @@ Skip this if Mode A (elements provided).
 
 ---
 
-## STEP 4 — Verify Alignment (Phase 3)
+## STEP 4 — Verify Alignment (Phase 3) — 50% OVERLAY METHOD ONLY
 
-1. Add static reference as bottom layer at full opacity
-2. **Use SMART MATCHING ORDER** — largest/most-opaque first:
-   - Full-bleed backgrounds → large opaque shapes → product images → icons/badges → text
-   - Each confirmed element excludes its bounding box from subsequent searches
-3. **Use the right matching technique:**
-   - **Opaque PNG elements:** Standard OpenCV template matching (`TM_CCOEFF_NORMED`)
-   - **Transparent PNG elements:** Edge-based matching (Canny edge detection on both element and reference)
-   - **HTML TEXT elements:** Render at current position, compare against corresponding region in static reference — must match within 2px width/height, 1px position
-   - **Fallback:** Restricted-ROI pixel-difference search if confidence < 0.6
-4. Render one frame after each element — check for ghosting
-5. **If misaligned → fix and re-verify. Do NOT proceed until perfect.**
-6. Show full overlay to user for approval
-7. **Save verified positions** to `verified-positions.json` (element ID → {left, top, width, height, render_type})
-8. Report alignment status to the user
+**The 50% overlay is the PRIMARY AND ONLY placement method for every element type.** No OpenCV matching, no Canny edge detection, no ROI fallback for placement. Place at 0.5 opacity → render → look for ghosting → nudge → re-render.
 
-⚠ **MUST get explicit approval before Phase 4**
+1. **Setup:** Add the static reference as bottom layer at FULL opacity (z-index 0). Clear previous overlay-frames folder.
+
+2. **Placement order** (largest/most-opaque first — each locked element's region is visually excluded for subsequent ones):
+   - Full-bleed background → large opaque shapes → product images → icons/badges → text (PNG and HTML TEXT) LAST
+
+3. **Per-element loop:**
+   - Estimate top-left position visually from the static reference
+   - Insert element at `opacity: 0.5`, width/height from PNG native dimensions (HTML TEXT: rendered width from Phase 1C font properties)
+   - Render frame 0: `npx hyperframes render --frame 0 --output "overlay-frames/<element>-attempt-N.png"`
+   - Read the frame and judge:
+     - **No ghosting** → element merges cleanly into the reference → LOCK and move to next
+     - **Ghosting visible** → measure pixel shift → adjust `left`/`top` → re-render
+     - **Wrong size / file mismatch** → STOP, ask user
+   - Hard limit: 8 attempts per element. If still ghosting at 8, STOP and ask user (likely wrong file or font mismatch). NEVER accept misalignment.
+
+4. **OPTIONAL CV accelerator — BACKGROUND ONLY:** If Python + OpenCV are installed AND the element is the full-bleed background, `cv2.matchTemplate` can provide a one-shot initial position (skip if conf < 0.95). Still verified by 50% overlay render. **Do NOT use CV for any other element type — text, products, icons, logos all go through pure visual overlay placement.**
+
+5. **Final approval gate:**
+   - Render `final-overlay.png` (all elements at 0.5 over reference at 1.0)
+   - Run `npm run dev` in background → HyperFrames Studio opens in browser showing the overlay
+   - **NEVER preview via OS image viewer, CLI image tool, or inline embed in chat.** Only `npm run dev` browser preview.
+   - Ask user (via popup): "Aligned?" → on approval, remove reference layer + opacity:0.5, save `verified-positions.json`
+
+⚠ **MUST get explicit user approval before Phase 4**
 
 ---
 
