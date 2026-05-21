@@ -712,6 +712,34 @@ If your CLI has no structured-question UI, fall back to numbered chat questions 
 >
 > If you catch yourself thinking "I'll just template-match this to find the position quickly" — that thought is the bug. Place the element at a visual estimate, render at 0.5 opacity, look at the result.
 
+> **🎨 MANDATORY TINT TEST — every element, every time**
+>
+> At 50% opacity, two identical-color elements (your overlay + the reference) become INDISTINGUISHABLE. You CANNOT reliably tell which is which when they're both dark navy or both gold — your nudge direction becomes a guess.
+>
+> **Apply a vivid color tint to every PNG element while placing it.** Use a CSS `filter` chain that recolors the element to bright red / green / blue — a color the static cannot be. Now your overlay = tinted color, reference = original color. Direction of offset is UNAMBIGUOUS.
+>
+> Standard recoloring filters (dark navy PNG → bright color):
+> - RED:   `filter: brightness(0) saturate(100%) invert(15%) sepia(99%) saturate(7500%) hue-rotate(-3deg);`
+> - GREEN: `filter: brightness(0) saturate(100%) invert(40%) sepia(95%) saturate(800%) hue-rotate(80deg);`
+> - BLUE:  `filter: brightness(0) saturate(100%) invert(20%) sepia(95%) saturate(7500%) hue-rotate(220deg);`
+>
+> For HAIRLINE elements (1px dividers), ALSO increase rendered thickness to 4–6px temporarily. A 1px static line peeks out from above or below your thick tint if misaligned.
+>
+> **For pixel-perfect verification, ALSO use `mix-blend-mode: difference`** on the overlay at full opacity (no filter): matching pixels become BLACK, any 1-px offset shows a visible colored ghost. Run this BEFORE locking.
+>
+> **Revert the filter / thickness / blend-mode to original** before declaring the element locked. The tint is a verification aid only, never the final render.
+
+> **🚦 LOCKING PROTOCOL — never silently lock**
+>
+> "Locked" means the USER agreed the position is correct. Until the user says so, the element is still in flight even if YOU think it looks aligned.
+>
+> The agent's internal "this looks fine to me" judgment is the LEAST reliable signal in this loop, because:
+> - Image renders shown back to the agent are downscaled and lose 1–3px precision.
+> - Identical-color overlays at 50% disguise small offsets entirely.
+> - The agent has no spatial intuition for whether a position "feels right" — only the user does.
+>
+> So the order is: visual estimate → render → tint test → difference test → present to user in Studio → **user approves explicitly** → locked. Skip any step and you are guessing.
+
 **The overlay method IS the positioning technique. Place each element at 50% opacity over the full-opacity reference, render one frame, look for ghosting, adjust pixel positions, re-render. Repeat until ghosting is gone. No CV matching for placement. No edge detection. No template matching as a search method. Just place → render → look → adjust.**
 
 #### Why overlay-only:
@@ -877,7 +905,34 @@ Then proceed to step 2 of the per-element loop above (insert at `opacity: 0.5`, 
    ```
 3. **Register the timeline** on `window.__timelines`
 4. **Set composition duration** to match the total animation length + hold time
-5. **POST-ANIMATION POSITION VERIFICATION (mandatory):**
+5. **🚨 GSAP TIMELINE DURATION GOTCHA — MANDATORY EXTENSION TO MATCH `data-duration`:**
+
+   When the renderer captures frames past the GSAP timeline's natural end, sub-composition clips can drop out and produce **blank/white frames** even though every clip has `data-duration` set to the full composition length. This happens because the sub-composition root inherits the GSAP timeline's `totalDuration()` as its effective lifetime when no explicit duration is on the inner `<div data-composition-id="...">` root.
+
+   **Symptom:** The MP4 renders correctly for the first ~1–2 seconds (during the animation), then the screen goes pure white for the remaining hold period.
+
+   **Cause:** A GSAP timeline with tweens that all end by t=1.0s reports `tl.totalDuration() === 1.0`. The renderer seeks past 1.0s, GSAP clamps, the sub-composition clip is treated as ended, and the rendered frame is empty (composition background color, typically white).
+
+   **Fix:** Extend the GSAP timeline to the full composition duration with a no-op `tl.set()` at the end. This anchors `tl.totalDuration()` to the composition length without animating anything:
+
+   ```js
+   const tl = gsap.timeline({ paused: true });
+   // ... all your real tweens ...
+   tl.fromTo('#last-element', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 1.5);
+
+   // MANDATORY: anchor timeline to composition duration so final hold renders
+   tl.set('#last-element', { opacity: 1 }, COMPOSITION_DURATION_SECONDS);
+
+   window.__timelines["<composition-id>"] = tl;
+   ```
+
+   The `tl.set()` at position `COMPOSITION_DURATION_SECONDS` (e.g. `5` for a 5-second composition) is a zero-duration action that extends `tl.totalDuration()` to that value. Pick any real element selector — the operation is a no-op (setting opacity:1 on something already at opacity:1).
+
+   **Verify the fix:** After rendering, extract a frame at t = `COMPOSITION_DURATION - 0.5s` using `ffmpeg -ss <t> -vframes 1 ...`. A blank ~6 KB output means the gotcha is still active; a full-image >100 KB output means the timeline is correctly extended.
+
+   This is a NON-NEGOTIABLE final step on every animated composition. Do NOT skip it just because the lint passes — `npm run check` does not catch this; only an actual MP4 render reveals it.
+
+6. **POST-ANIMATION POSITION VERIFICATION (mandatory):**
    - After all animation code is written but BEFORE opening Studio for preview:
    - Render frame 0 of the animated composition (the resting state before any animation plays)
    - Load `static-to-gif/projects/<project>/verified-positions.json` (saved in Phase 3)

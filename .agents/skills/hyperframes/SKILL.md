@@ -290,7 +290,33 @@ Video must be `muted playsinline`. Audio is always a separate `<audio>` element:
 - Register every timeline: `window.__timelines["<composition-id>"] = tl`
 - Framework auto-nests sub-timelines — do NOT manually add them
 - Duration comes from `data-duration`, not from GSAP timeline length
-- Never create empty tweens to set duration
+- Never create empty tweens to set duration — BUT see the gotcha below
+
+### ⚠️ Sub-composition GSAP duration gotcha
+
+Even though `data-duration` is documented as the source of truth, sub-compositions loaded via `data-composition-src` (i.e. composition files using the `<template>` wrapper) can render BLANK / WHITE frames past `tl.totalDuration()`. The MP4 plays the animation correctly, then goes pure background-color for the remaining hold time.
+
+**This happens specifically in sub-compositions.** The framework respects `data-duration` on the host element in `index.html`, but the inner sub-comp content can drop out when GSAP reports a shorter total duration.
+
+**Mitigation that does NOT violate "no empty tweens":** anchor the timeline to the composition's duration with a **no-op `set()`** on a real element at the final position:
+
+```js
+const tl = gsap.timeline({ paused: true });
+
+// Your real tweens — last one ends at, say, 1.0s
+tl.fromTo('#title', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.5);
+
+// Anchor tl.totalDuration() to the composition duration (5s here).
+// This is NOT an empty tween — it's a deterministic "set to current value"
+// that doubles as a duration anchor. The element is real, the value is final.
+tl.set('#title', { opacity: 1 }, 5);
+
+window.__timelines["my-sub-comp"] = tl;
+```
+
+The `tl.set()` is a zero-duration GSAP action that extends `tl.totalDuration()` to its position. Place it at exactly the composition's `data-duration` value in seconds. Pick any element that ends the animation at opacity:1 (or whatever final value) — the set is a deterministic no-op that just stamps the duration.
+
+**Verify after rendering:** `ffmpeg -ss <duration - 0.5> -vframes 1 out.png` should produce a >100 KB image (full final frame), not a ~6 KB blank.
 
 ## Rules (Non-Negotiable)
 

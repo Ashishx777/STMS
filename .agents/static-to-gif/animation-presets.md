@@ -177,6 +177,46 @@ tl.to("#purifier-orbit", {
 
 ---
 
+## Preset: Word-by-Word Headline Fade-Up (Static Scene)
+
+**Approved on:** 2026-05-21
+**Project:** atovio-anniversary-sale
+**Layout type:** Comparison split layout (left vs right columns) with HTML TEXT headlines, all other elements static
+**Best for:** Ads where the headline is the only animated focus. Static frame establishes context immediately; words sequentially fade up to draw the eye through the message. Use when the user explicitly wants only the headlines to animate.
+
+### Headlines — word-by-word fade up
+```js
+const leftWords = document.querySelectorAll('#el-headline-left .hl-left-word');
+const rightWords = document.querySelectorAll('#el-headline-right .hl-right-word');
+
+tl.fromTo(leftWords,
+  { opacity: 0, y: 24 },
+  { opacity: 1, y: 0, duration: 0.45, ease: "power2.out", stagger: 0.14 },
+  0.3
+);
+tl.fromTo(rightWords,
+  { opacity: 0, y: 24 },
+  { opacity: 1, y: 0, duration: 0.45, ease: "power2.out", stagger: 0.14 },
+  0.4
+);
+```
+
+### Required HTML structure
+- Wrap each word in `<span class="hl-{side}-word">` inside the headline div
+- Initial CSS on `.hl-*-word` must set `display: inline-block; opacity: 0;` so GSAP can tween y without affecting inline-flow
+
+**Settings:** 5s total. Left headline starts at 0.3s, right at 0.4s. Stagger 0.14s between words. Total headline animation completes by ~1.0s, leaving ~4s of hold. Other elements (logo, badge, dividers, subheads, devices, CTA, price pill, background) stay fully static — present from frame 0.
+
+**Font:** Darker Grotesque (Google Fonts CDN). Weight 800 for ALL-CAPS lines, weight 700 for sentence-case ("Definitely"). Size 78px / line-height 1.0 for 1080×1080 canvas with headline PNG height of ~111px.
+
+**⚠️ Duration anchor (mandatory):** Animation tweens above end at ~1.0s. Without an explicit anchor, the rendered MP4 goes blank/white for t > ~1s. Add after the last `fromTo`:
+```js
+tl.set(rightWords[rightWords.length - 1], { opacity: 1 }, 5);  // anchor to 5s composition duration
+```
+This zero-duration set extends `tl.totalDuration()` to 5s so the final hold renders correctly.
+
+---
+
 ## How to Use Presets
 
 1. During Phase 4, check if any preset matches the current design layout
